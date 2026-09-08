@@ -12,7 +12,15 @@ Read INTERPRETATION.md before using any output in public.
 from psephos._types import AuditReport, Finding, Flag
 from psephos.audit import audit
 from psephos.report import to_json, to_text
-from psephos.schema import ColumnMap, ElectionData, SchemaError, autodetect, load
+from psephos.schema import (
+    ColumnMap,
+    ElectionData,
+    SchemaError,
+    autodetect,
+    load,
+    load_column_map,
+    write_column_map,
+)
 
 __version__ = "0.1.0"
 
@@ -27,6 +35,8 @@ __all__ = [
     "audit",
     "autodetect",
     "load",
+    "load_column_map",
     "to_json",
     "to_text",
+    "write_column_map",
 ]
