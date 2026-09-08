@@ -61,6 +61,8 @@ def _fmt_finding(f: Finding, indent: str = "  ") -> list[str]:
         bits.append(f"stat={f.statistic:.4g}")
     if f.pvalue is not None:
         bits.append(f"p={f.pvalue:.4g}")
+    if f.adjusted_pvalue is not None:
+        bits.append(f"adj_p={f.adjusted_pvalue:.4g}")
     if f.effect is not None:
         bits.append(f"effect={f.effect:.4g}")
     bits.append(f"n={f.n_used}")
@@ -70,6 +72,44 @@ def _fmt_finding(f: Finding, indent: str = "  ") -> list[str]:
     for c in f.confounds:
         lines.append(f"{indent}    - could also be: {c}")
     return lines
+
+
+def _multiple_testing_lines(report: AuditReport) -> list[str]:
+    """The section that says how many tests ran and what the correction did to them.
+
+    A reader cannot judge a count of flags without knowing how many tests produced them, so
+    this section is not optional and there is no flag to suppress it, like the interpretation
+    section it precedes.
+    """
+    mt = report.meta.get("multiple_testing")
+    if not mt:
+        return []
+    out = ["", "MULTIPLE TESTING"]
+    if mt["n_hypotheses"] == 0:
+        out.append("  No statistical test ran, so there is nothing to correct.")
+        return out
+    out.append(
+        f"  The audit tested {mt['n_hypotheses']} hypotheses in {mt['n_findings']} findings, "
+        f"{mt['n_findings_with_pvalue']} of which carried a p-value. Re-tests of one "
+        "hypothesis, such as the four size thresholds or the size strata, are counted once, "
+        "through the smallest raw p among them."
+    )
+    out.append(
+        f"  Corrected with the {mt['method']} false-discovery-rate procedure at q = {mt['q']}. "
+        "The adjusted p is printed beside the raw one and is a report, not a verdict: no flag "
+        "is raised or withdrawn by it."
+    )
+    out.append(f"  What counts as one family, and why, is argued in {mt['doc']}.")
+    flagged = report.flagged
+    if flagged:
+        survive = sum(
+            1 for f in flagged if f.adjusted_pvalue is not None and f.adjusted_pvalue <= mt["q"]
+        )
+        out.append(
+            f"  {survive} of the {len(flagged)} flags above keep an adjusted p at or below "
+            f"q = {mt['q']}."
+        )
+    return out
 
 
 def to_text(report: AuditReport, *, verbose: bool = False) -> str:
@@ -109,6 +149,8 @@ def to_text(report: AuditReport, *, verbose: bool = False) -> str:
         out.append("  Nothing departed from its null enough to flag.")
     for f in flagged:
         out.extend(_fmt_finding(f))
+
+    out.extend(_multiple_testing_lines(report))
 
     if verbose:
         out.append("")
