@@ -1,0 +1,59 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    # pyproject.toml claims Python 3.10 and up; this matrix is what makes that claim tested.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --all-extras
+      - run: uv run pytest -q
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+      - run: uv sync --all-extras
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  guardrail:
+    # The one behaviour the tool's honesty rests on. Asserted here directly, alongside the named
+    # test, so that neither the test nor the invariant itself can be removed by accident.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+      - run: uv sync --all-extras
+      - name: run the guardrail test by name
+        run: uv run pytest -q tests/test_audit.py::test_a_flagged_finding_cannot_omit_confounds
+      - name: assert the invariant directly
+        run: |
+          uv run python - <<'PY'
+          from psephos._types import Finding, Flag
+
+          # Every flagged level must raise without confounds. Checked one at a time: in a
+          # single try block the first call raises and the rest are never reached.
+          for flag in (Flag.STRONG, Flag.NOTABLE):
+              try:
+                  Finding(check="x", title="t", flag=flag)
+              except ValueError:
+                  continue
+              raise SystemExit(
+                  f"guardrail violated: {flag.value} Finding without confounds did not raise"
+              )
+
+          # And the unflagged levels must still be constructible without them.
+          for flag in (Flag.OK, Flag.UNDERPOWERED, Flag.NOT_APPLICABLE):
+              Finding(check="x", title="t", flag=flag)
+          PY
