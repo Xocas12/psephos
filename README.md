@@ -156,8 +156,18 @@ thing it claims to find. A check without the quiet test will not be merged.
 
 MIT. See [LICENSE](LICENSE).
 
-## Related
+## Related repositories
 
-Built alongside a private research programme on statistical forensics of strategically reported
-data, which uses the same method families on election, accounting and official-statistics data.
-psephos is the standalone, general-purpose part.
+Five repositories, one programme. All public.
+
+| Repository | What it is | State |
+|---|---|---|
+| [psephos](https://github.com/Xocas12/psephos) | standalone election anomaly-detection tool, CLI and library | **works**; 47 tests |
+| [forensics-core](https://github.com/Xocas12/forensics-core) | the shared research method library | scaffold; 605 tests, no analysis run |
+| [forensic-elections](https://github.com/Xocas12/forensic-elections) | Russian federal elections, the calibration project | scaffold; 736 tests, no analysis run |
+| [forensic-economy](https://github.com/Xocas12/forensic-economy) | accounting enforcement, Chinese provincial statistics, Soviet statistics | scaffold; 995 tests, no analysis run |
+| [gosplan-env](https://github.com/Xocas12/gosplan-env) | multi-agent environment where reporting pathologies emerge from incentives | skeleton; nothing run |
+
+The four research repositories work under a discipline that forbids running anything before its
+gate, and none of them contains a result. psephos is deliberately the opposite: it is meant to
+be run today.
