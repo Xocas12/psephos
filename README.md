@@ -144,6 +144,10 @@ signal lives in the small units.
 - Tell you whether an election was fraudulent.
 - Produce a single score.
 - Estimate a number of anomalous votes.
+- Run a first-digit Benford test, on purpose. Precinct counts do not span the orders of
+  magnitude the first-digit law needs, so the test rejects honest data and the p-value looks
+  like proof. The argument, with a demonstration on honest data this repository generated, is
+  in [docs/why_no_benford.md](docs/why_no_benford.md).
 - Compare your election against others. **This is the biggest gap**: a statistic from one
   election means little without a baseline. See issue #4.
 - Handle multi-round, multi-member or preferential systems properly yet. See issue #11.
@@ -151,7 +155,7 @@ signal lives in the small units.
 ## Honest status
 
 Version 0.1. The methods are implemented from published descriptions and tested against
-synthetic elections where the answer is known by construction: clean data must not be flagged,
+synthetic elections where the answer is known by construction: the false-positive rate on clean data must sit near its nominal level,
 injected rounding must be found, and the measured effect must rise with the injected amount.
 
 **They have not yet been validated against a real election with a known, published result.**

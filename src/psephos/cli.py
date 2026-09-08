@@ -5,9 +5,11 @@
     psephos columns results.csv
     psephos columns results.csv --write-map draft.yaml
     psephos audit results.csv --map election.yaml
+    psephos benford
 
 Exit codes: 0 when the audit ran, 1 when it could not run at all (a missing file, an unreadable
-table, a column map that names something absent). A flagged finding is NOT an error exit,
+table, a column map that names something absent). The benford subcommand also exits 0: it is an
+answer, not a failure. A flagged finding is NOT an error exit,
 because flagged findings are the normal output of the tool and turning them into a failing exit
 code invites a script to treat "anomaly" as "fraud".
 """
@@ -156,6 +158,25 @@ def _cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_benford(args: argparse.Namespace) -> int:
+    """Answer a request for the absent Benford test by pointing at the argument against it.
+
+    The alternative outcomes are worse: argparse refusing with "invalid choice" reads as an
+    oversight, and running the test would contradict docs/why_no_benford.md, which shows it
+    rejecting honest data. The path argument, if given, is named in the reply and never read.
+    """
+    asked = f" on {args.path}" if args.path else ""
+    print(
+        f"You asked for a first-digit Benford test{asked}. psephos has none, by design:\n"
+        "Benford's law needs counts spanning several orders of magnitude, and precinct vote\n"
+        "counts do not span them, so the first-digit distribution follows the precinct size\n"
+        "distribution and the test rejects honest data. The argument, with a runnable\n"
+        "demonstration on this repository's own clean generator and with the sources, is in\n"
+        "docs/why_no_benford.md in the repository."
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="psephos",
@@ -208,6 +229,18 @@ def build_parser() -> argparse.ArgumentParser:
     aud.add_argument("-v", "--verbose", action="store_true", help="show every finding")
     aud.add_argument("-q", "--quiet", action="store_true", help="suppress the text report")
     aud.set_defaults(func=_cmd_audit)
+
+    ben = sub.add_parser(
+        "benford",
+        help="why there is no first-digit Benford test (absent on purpose, not an oversight)",
+    )
+    ben.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="a results file, if you gave one; it is not read",
+    )
+    ben.set_defaults(func=_cmd_benford)
     return p
 
 
