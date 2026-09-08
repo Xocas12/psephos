@@ -99,9 +99,23 @@ def test_integer_excess_rejects_mismatched_shapes():
 # ---------------------------------------------------------------- digits
 
 
-def test_last_digit_quiet_on_clean_data(clean_df):
-    f = last_digit_uniformity(clean_df["party_incumbent"].to_numpy(float))
-    assert f.flag is Flag.OK, f
+def test_last_digit_false_positive_rate_is_near_nominal(clean_df):
+    """Quietness is a RATE, not a single draw.
+
+    Demanding Flag.OK on one seed asserts that a correct check got lucky: at alpha 0.05 any
+    honest check flags about one clean election in twenty. So measure the rate over many
+    independent clean elections instead. Measured here: 4 notable and 0 strong out of 40.
+    """
+    flags = [
+        last_digit_uniformity(
+            clean_election(n=4000, seed=200 + s)["party_incumbent"].to_numpy(float)
+        ).flag
+        for s in range(40)
+    ]
+    strong = sum(f is Flag.STRONG for f in flags)
+    flagged = sum(f in (Flag.NOTABLE, Flag.STRONG) for f in flags)
+    assert strong == 0, "a strong flag on clean data means the check is badly calibrated"
+    assert flagged <= 8, f"{flagged}/40 clean elections flagged; nominal is about 2"
 
 
 def test_last_digit_finds_invented_numbers(clean_df):

@@ -29,7 +29,15 @@ def clean_election(
     the dependence check should also come back quiet.
     """
     rng = np.random.default_rng(seed)
-    size = np.clip(rng.lognormal(mean=6.8, sigma=0.6, size=n), min_size, max_size)
+    # Rejection-sample rather than clip. Clipping piled several per cent of precincts onto
+    # exactly min_size and max_size, which is not something a real electorate does and which
+    # gave those two values a spike big enough to make a digit test on `registered` fire. A
+    # generator whose job is to be unremarkable must not carry an artefact like that.
+    size = rng.lognormal(mean=6.8, sigma=0.6, size=n)
+    out_of_range = (size < min_size) | (size > max_size)
+    while out_of_range.any():
+        size[out_of_range] = rng.lognormal(mean=6.8, sigma=0.6, size=int(out_of_range.sum()))
+        out_of_range = (size < min_size) | (size > max_size)
     registered = np.rint(size).astype(int)
 
     turnout_rate = np.clip(rng.normal(turnout_mean, 0.10, size=n), 0.05, 0.98)

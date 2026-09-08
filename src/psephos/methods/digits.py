@@ -13,7 +13,8 @@ not validated the direction against the paper; issue #7 tracks that.
 
 On Benford's law: the first-digit test is deliberately NOT implemented here. Precinct vote
 counts do not span enough orders of magnitude for Benford to hold under honest conditions, so
-it produces confident nonsense on exactly this kind of data. Issue #8 records the reasoning.
+it produces confident nonsense on exactly this kind of data. docs/why_no_benford.md records
+the reasoning, with a demonstration on honest data.
 """
 
 from __future__ import annotations
