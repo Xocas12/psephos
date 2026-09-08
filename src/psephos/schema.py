@@ -2,7 +2,9 @@
 
 Election results arrive with different column names in different languages, so the mapping is
 explicit and inspectable. Auto-detection exists for convenience and always records what it
-guessed; it never guesses silently.
+guessed; it never guesses silently. A mapping can also be written to a YAML file and read back,
+so the decisions it encodes can be committed, diffed and argued with rather than buried in a
+command line.
 """
 
 from __future__ import annotations
@@ -38,6 +40,21 @@ HINTS: dict[str, tuple[str, ...]] = {
     "region": ("region", "province", "oblast", "область", "регион"),
     "district": ("district", "tik", "constituency", "county", "муниципал"),
 }
+
+
+#: The role names a column map can set, in the order they are written out.
+MAP_ROLES: tuple[str, ...] = (
+    "registered",
+    "ballots_cast",
+    "invalid",
+    "precinct_id",
+    "region",
+    "district",
+)
+
+#: Every key a map file may contain. Anything else is a typo, and the loader says so rather than
+#: skipping it, because a misspelled role left unset quietly disables the checks that need it.
+MAP_KEYS: frozenset[str] = frozenset(MAP_ROLES) | {"votes", "notes"}
 
 
 class SchemaError(ValueError):
@@ -100,14 +117,13 @@ def autodetect(df: pd.DataFrame, vote_pattern: str | None = None) -> ColumnMap:
     """
     cols = list(df.columns)
     cmap = ColumnMap()
-    roles = ("registered", "ballots_cast", "invalid", "precinct_id", "region", "district")
-    for role in roles:
+    for role in MAP_ROLES:
         found = _match(cols, HINTS[role])
         if found is not None:
             setattr(cmap, role, found)
             cmap.notes.append(f"guessed {role} = {found!r}")
 
-    claimed = {getattr(cmap, r) for r in roles} - {None}
+    claimed = {getattr(cmap, r) for r in MAP_ROLES} - {None}
 
     if vote_pattern:
         rx = re.compile(vote_pattern)
@@ -121,6 +137,128 @@ def autodetect(df: pd.DataFrame, vote_pattern: str | None = None) -> ColumnMap:
         )
     cmap.votes = {str(c): c for c in vote_cols}
     return cmap
+
+
+def _import_yaml() -> Any:
+    """pyyaml is deliberately not a core dependency, so it is imported where it is used and its
+    absence is reported as the missing piece it is, not as an ImportError from nowhere."""
+    try:
+        import yaml
+    except ImportError as exc:
+        raise SchemaError(
+            "column-map files need pyyaml, which is not installed. "
+            "Install psephos with the yaml extra: pip install 'psephos[yaml]'"
+        ) from exc
+    return yaml
+
+
+def _as_name(value: Any, what: str) -> str:
+    """One column name out of a YAML scalar. A list where a single name belongs is a mistake."""
+    if value is None:
+        raise SchemaError(f"{what} is empty; give a column name or drop the key")
+    if isinstance(value, (dict, list)):
+        raise SchemaError(f"{what} must be a single column name, not a {type(value).__name__}")
+    return str(value)
+
+
+def load_column_map(path: str | Path) -> ColumnMap:
+    """Read a column map from a YAML file.
+
+    The file is the reviewed artifact, so the loader is strict on purpose. An unknown key is an
+    error rather than something to skip, because a misspelled role would otherwise sit silently
+    unset and disable every check that needs it. ``notes`` entries are carried through verbatim;
+    they are the record of what was guessed rather than chosen.
+
+    Raises :class:`SchemaError` if the file is not YAML, is empty, is not a mapping, or holds
+    something a map cannot set.
+    """
+    yaml = _import_yaml()
+    path = Path(path)
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise SchemaError(f"{path}: not valid YAML: {exc}") from exc
+
+    if raw is None:
+        raise SchemaError(f"{path}: the file is empty")
+    if not isinstance(raw, dict):
+        raise SchemaError(
+            f"{path}: a column map is a mapping of roles to column names, not a "
+            f"{type(raw).__name__}"
+        )
+
+    unknown = sorted(str(k) for k in raw if k not in MAP_KEYS)
+    if unknown:
+        raise SchemaError(
+            f"{path}: unknown map key(s) {', '.join(unknown)}. A map can hold "
+            f"{', '.join(sorted(MAP_KEYS))}. An unknown key is a typo, and skipping it would "
+            "leave the role it meant to set unset."
+        )
+
+    cmap = ColumnMap()
+    for role in MAP_ROLES:
+        if raw.get(role) is not None:
+            setattr(cmap, role, _as_name(raw[role], f"{path}: {role}"))
+
+    if raw.get("votes") is not None:
+        votes = raw["votes"]
+        if not isinstance(votes, dict):
+            raise SchemaError(
+                f"{path}: 'votes' must map a contestant label to its column, not be a "
+                f"{type(votes).__name__}"
+            )
+        for label, col in votes.items():
+            cmap.votes[_as_name(label, f"{path}: vote label")] = _as_name(
+                col, f"{path}: vote column for {label!r}"
+            )
+
+    if raw.get("notes") is not None:
+        notes = raw["notes"]
+        if not isinstance(notes, list):
+            raise SchemaError(f"{path}: 'notes' must be a list of short text entries")
+        for note in notes:
+            if isinstance(note, (dict, list)):
+                raise SchemaError(
+                    f"{path}: 'notes' entries must be text, not a {type(note).__name__}"
+                )
+            if note is None:
+                raise SchemaError(f"{path}: 'notes' has an empty entry")
+            cmap.notes.append(str(note))
+    return cmap
+
+
+def write_column_map(cmap: ColumnMap, path: str | Path) -> None:
+    """Write a column map to a YAML file, as ``psephos columns --write-map`` does.
+
+    The file is meant to be committed, diffed and argued with, so the notes go in twice on
+    purpose: once as comments at the top, where a reviewer reading the file sees them, and once
+    as ``notes`` entries, so they survive being loaded back. Unset roles are written as null
+    rather than omitted, because the roles a dataset lacks are part of the record.
+    """
+    yaml = _import_yaml()
+    lines = [
+        "# Column map for psephos, written by: psephos columns --write-map",
+        "#",
+        "# Everything below was auto-detected, not chosen. A guess that is wrong changes the",
+        "# answer, most obviously which of the available columns serves as the denominator for",
+        "# turnout. Edit this file, then audit with --map, so the decision lives in the file",
+        "# rather than in somebody's shell history.",
+        "#",
+        "# What auto-detection guessed, as comments here and as notes entries below:",
+    ]
+    for note in cmap.notes:
+        parts = str(note).splitlines() or [""]
+        lines.extend(f"# {part}" for part in parts)
+    data: dict[str, Any] = {role: getattr(cmap, role) for role in MAP_ROLES}
+    data["votes"] = dict(cmap.votes)
+    data["notes"] = list(cmap.notes)
+    # width keeps every scalar on one line. A note wrapped across two lines is valid YAML, but
+    # a reviewer appending a note after a continuation line produces a file that still parses,
+    # with the two notes silently joined; one line per entry leaves nothing to append into.
+    lines.append(
+        yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100000).rstrip("\n")
+    )
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 @dataclass

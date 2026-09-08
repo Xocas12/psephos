@@ -84,6 +84,20 @@ psephos audit results.csv \
   --json report.json
 ```
 
+For anything with more than a handful of contestants, put the mapping in a file instead. The
+point is not brevity: a map file records decisions that change the answer, most obviously which
+of several denominators counts as turnout, and a file can be committed, diffed and argued with
+where a command line buried in shell history cannot.
+
+```console
+psephos columns results.csv --write-map draft.yaml   # a starting point, with every guess noted
+$EDITOR draft.yaml                                   # correct the guesses
+psephos audit results.csv --map draft.yaml
+```
+
+Map files need the `yaml` extra (`pip install 'psephos[yaml]'`); the core install stays on
+numpy, scipy and pandas.
+
 As a library:
 
 ```python
