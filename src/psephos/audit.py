@@ -8,7 +8,10 @@ threshold is a parameter that can be tuned until the answer is interesting.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from psephos._types import AuditReport, Finding, Flag
+from psephos.correction import apply_correction
 from psephos.integrity import run_integrity
 from psephos.methods import digits, integer_pct, turnout
 from psephos.schema import ElectionData, SchemaError
@@ -18,18 +21,26 @@ from psephos.size import size_warning, stratify
 DEFAULT_THRESHOLDS: tuple[int, ...] = (100, 250, 500, 1000)
 
 
-def _safe(fn, *args, check: str, **kwargs) -> Finding:
-    """Run one check; turn any failure into a reported finding rather than a crash."""
+def _safe(fn, *args, check: str, hypothesis: str | None = None, **kwargs) -> Finding:
+    """Run one check; turn any failure into a reported finding rather than a crash.
+
+    ``hypothesis`` tags the finding as a re-test of one hypothesis when the audit runs that
+    hypothesis on several slices, which is what the multiple-testing correction counts once;
+    see docs/multiple_testing.md.
+    """
     try:
-        return fn(*args, **kwargs)
+        finding = fn(*args, **kwargs)
     except SchemaError as exc:
-        return Finding(check=check, title=f"Not run: {exc}", flag=Flag.NOT_APPLICABLE)
+        finding = Finding(check=check, title=f"Not run: {exc}", flag=Flag.NOT_APPLICABLE)
     except Exception as exc:
-        return Finding(
+        finding = Finding(
             check=check,
             title=f"Check failed: {type(exc).__name__}: {exc}",
             flag=Flag.NOT_APPLICABLE,
         )
+    if hypothesis is not None:
+        return replace(finding, hypothesis=hypothesis)
+    return finding
 
 
 def audit(
@@ -44,6 +55,12 @@ def audit(
 
     Returns an :class:`~psephos._types.AuditReport`. Nothing here raises on statistical
     grounds: a check that cannot run says so and the audit continues.
+
+    Before returning, the audit applies the multiple-testing correction of
+    :mod:`psephos.correction`: every finding keeps its raw p-value and gains an adjusted one
+    beside it, no flag is raised or withdrawn by the correction, and the number of hypotheses
+    tested is recorded in the report meta. What counts as one family is argued in
+    docs/multiple_testing.md.
     """
     report = AuditReport(
         source=data.source,
@@ -71,7 +88,7 @@ def audit(
                 flag=Flag.NOT_APPLICABLE,
             )
         )
-        return report
+        return apply_correction(report)
 
     winner = data.winner_label()
     report.meta["winner"] = winner
@@ -96,6 +113,8 @@ def audit(
                     seed=seed,
                     slice_name=f"turnout, min_denominator={t}",
                     label="turnout",
+                    # One hypothesis at four thresholds, counted once by the correction.
+                    hypothesis="integer_pct:turnout",
                 )
             )
 
@@ -113,6 +132,7 @@ def audit(
                     seed=seed,
                     slice_name=f"{winner} share, min_denominator={t}",
                     label=f"{winner} share",
+                    hypothesis=f"integer_pct:{winner} share",
                 )
             )
 
@@ -124,6 +144,7 @@ def audit(
                 check="turnout_share_dependence",
                 weights=valid,
                 winner=winner,
+                hypothesis="turnout_share_dependence",
             )
         )
         report.add(_safe(turnout.turnout_roundness, data.turnout(), check="turnout_distribution"))
@@ -140,6 +161,8 @@ def audit(
         )
 
     # ---------------------------------------------------------------- digit checks
+    # One hypothesis per contestant column: each count's digits are a separate question, and
+    # they are the members of the family closest to independent.
     for label, col in data.columns.votes.items():
         counts = data.frame[col].to_numpy(dtype=float)
         report.add(
@@ -149,6 +172,7 @@ def audit(
                 check="last_digit",
                 slice_name=label,
                 label=label,
+                hypothesis=f"last_digit:{label}",
             )
         )
     report.add(
@@ -158,6 +182,7 @@ def audit(
             check="last_two_digits",
             slice_name=winner,
             label=winner,
+            hypothesis=f"last_two_digits:{winner}",
         )
     )
 
@@ -179,7 +204,10 @@ def audit(
                     seed=seed,
                     slice_name=f"turnout, {stratum.name}",
                     label="turnout",
+                    # Where the signal lives, not a new hypothesis: the same turnout claim
+                    # re-tested within size bands, counted once by the correction.
+                    hypothesis="integer_pct:turnout",
                 )
             )
 
-    return report
+    return apply_correction(report)

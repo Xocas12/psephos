@@ -74,11 +74,22 @@ class Finding:
         Units deliberately dropped, and ``details["excluded_because"]`` says why.
     slice_name : str
         Which subset this was computed on, e.g. ``"all"`` or ``"registered 250-999"``.
+    hypothesis : str or None
+        The hypothesis this finding re-tests, when the audit runs one hypothesis on several
+        slices: the size-threshold sweep and the size strata each re-test one hypothesis.
+        Findings sharing a hypothesis are counted once by the multiple-testing correction.
+        Set by the audit, not by the check; ``None`` where the finding is a hypothesis of its
+        own or tests nothing.
     confounds : list of str
         Innocent explanations that produce this same signal. Never empty for a flagged
         finding: if nobody can name one, the check is not ready to be trusted.
     details : dict
         Everything else worth keeping.
+    adjusted_pvalue : float or None
+        The p-value after the audit's multiple-testing correction, filled in by
+        :func:`psephos.correction.apply_correction`. It is reported beside the raw p-value,
+        never instead of it, and no flag is raised or withdrawn by it. ``None`` where the
+        check produced no p-value.
     """
 
     check: str
@@ -90,8 +101,10 @@ class Finding:
     n_used: int = 0
     n_excluded: int = 0
     slice_name: str = "all"
+    hypothesis: str | None = None
     confounds: list[str] = field(default_factory=list)
     details: dict[str, Any] = field(default_factory=dict)
+    adjusted_pvalue: float | None = None
 
     def __post_init__(self) -> None:
         if self.flag in (Flag.NOTABLE, Flag.STRONG) and not self.confounds:
