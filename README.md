@@ -146,6 +146,9 @@ treat psephos as a tool for generating questions, not answers.
 
 ## Contributing
 
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first: it states the bar a new check has to clear,
+and `src/psephos/methods/_template.py` is a working example that clears it.
+
 Issues are organised by milestone. Good places to start are labelled `good first issue`.
 
 If you are adding a check, it needs: a null you can state in one sentence, a list of confounds,
@@ -162,7 +165,7 @@ Five repositories, one programme. All public.
 
 | Repository | What it is | State |
 |---|---|---|
-| [psephos](https://github.com/Xocas12/psephos) | standalone election anomaly-detection tool, CLI and library | **works**; 47 tests |
+| [psephos](https://github.com/Xocas12/psephos) | standalone election anomaly-detection tool, CLI and library | **works**; suite green |
 | [forensics-core](https://github.com/Xocas12/forensics-core) | the shared research method library | scaffold; 605 tests, no analysis run |
 | [forensic-elections](https://github.com/Xocas12/forensic-elections) | Russian federal elections, the calibration project | scaffold; 736 tests, no analysis run |
 | [forensic-economy](https://github.com/Xocas12/forensic-economy) | accounting enforcement, Chinese provincial statistics, Soviet statistics | scaffold; 995 tests, no analysis run |
