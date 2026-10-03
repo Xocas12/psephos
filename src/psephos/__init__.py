@@ -11,6 +11,7 @@ Read INTERPRETATION.md before using any output in public.
 
 from psephos._types import AuditReport, Finding, Flag
 from psephos.audit import audit
+from psephos.html_report import to_html
 from psephos.report import to_json, to_text
 from psephos.schema import (
     ColumnMap,
@@ -36,6 +37,7 @@ __all__ = [
     "autodetect",
     "load",
     "load_column_map",
+    "to_html",
     "to_json",
     "to_text",
     "write_column_map",

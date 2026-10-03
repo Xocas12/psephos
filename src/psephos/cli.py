@@ -5,6 +5,7 @@
     psephos columns results.csv
     psephos columns results.csv --write-map draft.yaml
     psephos audit results.csv --map election.yaml
+    psephos audit results.csv --html report.html
     psephos benford
 
 Exit codes: 0 when the audit ran, 1 when it could not run at all (a missing file, an unreadable
@@ -22,6 +23,7 @@ from pathlib import Path
 
 from psephos import __version__
 from psephos.audit import DEFAULT_THRESHOLDS, audit
+from psephos.html_report import to_html
 from psephos.report import to_json, to_text
 from psephos.schema import (
     ColumnMap,
@@ -123,6 +125,13 @@ def _cmd_audit(args: argparse.Namespace) -> int:
     if not path.exists():
         print(f"error: no such file: {path}", file=sys.stderr)
         return 1
+    if args.html:
+        # Checked before the audit, so a missing extra costs nothing and says what to install.
+        try:
+            import psephos.plots  # noqa: F401
+        except ImportError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
     try:
         peek = (
             pd.read_parquet(path)
@@ -153,6 +162,9 @@ def _cmd_audit(args: argparse.Namespace) -> int:
     if args.json:
         Path(args.json).write_text(to_json(report), encoding="utf-8")
         print(f"wrote {args.json}")
+    if args.html:
+        Path(args.html).write_text(to_html(report, data, verbose=args.verbose), encoding="utf-8")
+        print(f"wrote {args.html}")
     if not args.quiet:
         print(to_text(report, verbose=args.verbose))
     return 0
@@ -226,6 +238,12 @@ def build_parser() -> argparse.ArgumentParser:
     aud.add_argument("--seed", type=int, default=0, help="random seed (default 0)")
     aud.add_argument("--no-strata", action="store_true", help="skip the per-size-band view")
     aud.add_argument("--json", default=None, metavar="PATH", help="also write a JSON report")
+    aud.add_argument(
+        "--html",
+        default=None,
+        metavar="PATH",
+        help="also write an HTML report with plots (needs the plots extra)",
+    )
     aud.add_argument("-v", "--verbose", action="store_true", help="show every finding")
     aud.add_argument("-q", "--quiet", action="store_true", help="suppress the text report")
     aud.set_defaults(func=_cmd_audit)

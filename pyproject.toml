@@ -23,6 +23,7 @@ dependencies = [
 [project.optional-dependencies]
 parquet = ["pyarrow>=14.0"]
 yaml = ["pyyaml>=6.0"]
+plots = ["matplotlib>=3.8"]
 
 [project.urls]
 Homepage = "https://github.com/Xocas12/psephos"
@@ -38,6 +39,7 @@ dev = [
     "ruff>=0.6",
     "pyarrow>=14.0",
     "pyyaml>=6.0",
+    "matplotlib>=3.8",
 ]
 
 [build-system]
