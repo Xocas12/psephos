@@ -98,6 +98,13 @@ psephos audit results.csv --map draft.yaml
 Map files need the `yaml` extra (`pip install 'psephos[yaml]'`); the core install stays on
 numpy, scipy and pandas.
 
+For a report you can read rather than parse, add `--html report.html`. It writes one
+self-contained page: the interpretation section first, then the flagged findings with their
+confounds, then four plots, the fine turnout histogram, turnout against the winner's share,
+the effect across size thresholds, and last digits against uniform. Every plot states how many
+units it used and how many it excluded, by the same rule as the check it illustrates. It needs
+the `plots` extra (`pip install -e '.[plots]'`, or `uv sync --extra plots`).
+
 As a library:
 
 ```python
