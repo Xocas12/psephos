@@ -31,8 +31,9 @@ import pandas as pd
 #: for western European commissions.
 FALLBACK_ENCODINGS: tuple[str, ...] = ("utf-8-sig", "cp1251", "cp1252", "latin-1")
 
-#: Words that mark an aggregate row in the languages these datasets come in. Matched
-#: case-insensitively against any text cell of a row.
+#: Words that mark an aggregate row in the languages these datasets come in. Matched whole,
+#: case-insensitively, against any text cell of a row -- see :data:`_TOTAL_WORD_RE` for why the
+#: match cannot be a bare substring.
 TOTAL_ROW_WORDS: tuple[str, ...] = (
     "total",
     "totals",
@@ -48,6 +49,18 @@ TOTAL_ROW_WORDS: tuple[str, ...] = (
     "ogolem",
     "summa",
     "yhteensä",
+)
+
+#: The totalling words as a whole-word pattern. Substring matching here was a real bug: a
+#: polling station in Totalán (Málaga) contains "total", one in Sumas contains "suma", and both
+#: raised a STRONG "remove it and rerun" finding on a perfectly ordinary file. This repository's
+#: own standard is that a detector which fires on an ordinary file is worse than none, so the
+#: boundaries are lookarounds rather than ``\b``: ``\w`` is Unicode-aware here, which is what
+#: makes the Cyrillic entries behave, and the lookarounds work the same either side of a
+#: non-ASCII letter.
+_TOTAL_WORD_RE = re.compile(
+    r"(?<!\w)(?:" + "|".join(re.escape(w) for w in TOTAL_ROW_WORDS) + r")(?!\w)",
+    re.IGNORECASE | re.UNICODE,
 )
 
 #: Human names for the separator characters, because two of the five are whitespace and a note
@@ -361,9 +374,15 @@ def coerce_numeric(frame: pd.DataFrame) -> list[str]:
 def find_total_rows(frame: pd.DataFrame, numeric_cols: list[str] | None = None) -> list[int]:
     """Row positions that look like an aggregate rather than a precinct.
 
-    Two signatures, either sufficient. A text cell containing a totalling word in any of the
-    languages these files come in; or a row whose numeric values are each within half a per cent
-    of the sum of every other row, which is what a total row looks like when it is unlabelled.
+    Two signatures, either sufficient. A text cell whose whole words include a totalling word in
+    any of the languages these files come in; or a row whose numeric values are each within half
+    a per cent of the sum of every other row, which is what a total row looks like when it is
+    unlabelled.
+
+    The word match is whole-word on purpose and not a substring: "Totalán" is a municipality in
+    Málaga and "Sumas" is an ordinary place name, and matching them raised a STRONG finding
+    telling the user to delete a real precinct. A labelled aggregate is still caught on the word
+    alone, without corroboration from the sums, because a row actually called "TOTAL" is one.
 
     This matters more than its size suggests. A national total left in as a precinct is one
     enormous unit: it passes every integrity check, and it distorts every size-weighted
@@ -375,7 +394,7 @@ def find_total_rows(frame: pd.DataFrame, numeric_cols: list[str] | None = None) 
 
     for pos in range(len(frame)):
         for value in frame.iloc[pos]:
-            if isinstance(value, str) and any(w in value.casefold() for w in TOTAL_ROW_WORDS):
+            if isinstance(value, str) and _TOTAL_WORD_RE.search(value):
                 found.add(pos)
                 break
 

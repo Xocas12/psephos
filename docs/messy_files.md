@@ -115,10 +115,15 @@ counts are positive, its turnout is plausible, its parties sum — and it is one
 the country, so every size-weighted statistic is dominated by it and the size strata put it
 alone in the top band.
 
-Two signatures, either sufficient: a text cell containing a totalling word in any of fourteen
-languages, or a row whose numeric values are each within half a per cent of the sum of every
+Two signatures, either sufficient: a text cell one of whose **whole words** is a totalling word
+in any of fourteen languages, or a row whose numeric values are each within half a per cent of the sum of every
 other row, which is what an **unlabelled** total looks like and is the case a word list cannot
 catch.
+
+The word match is whole-word and not a substring. Matching substrings was a real bug: Totalan is
+a municipality in Malaga and Sumas is an ordinary place name, and both raised a STRONG "remove
+it and rerun" finding on a file whose only sin was having a station there. A detector that fires
+on an ordinary file is worse than none, and this one tells the user to delete a real precinct.
 
 Detected rows are **not removed**. Dropping a row is a decision about the data rather than about
 the file, and the loader does not get to make it. What makes the decision unavoidable instead is

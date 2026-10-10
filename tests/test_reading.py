@@ -314,6 +314,60 @@ def test_total_words_are_matched_across_languages(word):
     assert 4 in find_total_rows(frame)
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Totalán",  # a municipality in Málaga; contains "total"
+        "Totalan",  # and its unaccented spelling, which is how a CSV often carries it
+        "Sumas",  # contains "suma"
+        "Sumacàrcer",  # Valencia; also contains "suma"
+        "Totana",  # Murcia
+        "Gesamtschule Nord",  # a school as a polling place; contains "gesamt"
+        "Totnes",
+    ],
+)
+def test_an_ordinary_place_name_containing_a_total_word_is_not_a_total_row(name):
+    """The quiet side of the detector, and the bug this is here to keep fixed.
+
+    Matching the totalling words as bare substrings raised a STRONG "remove it and rerun"
+    finding on a file whose only sin was a station in Totalán. A detector that fires on an
+    ordinary file is worse than none, and this one tells the user to delete a real precinct.
+    """
+    frame = pd.DataFrame(
+        {
+            "station": [name, "Villanueva", "Alhaurín", "Mijas"],
+            "registered": [900.0, 800.0, 700.0, 600.0],
+            "votes": [400.0, 350.0, 300.0, 250.0],
+        }
+    )
+    assert find_total_rows(frame) == []
+
+
+@pytest.mark.parametrize("word", ["TOTAL", "Total", "Итого", "ИТОГО", "Gesamt", "Ogółem"])
+def test_a_row_labelled_with_a_total_word_is_still_caught(word):
+    """The loud side: whole-word matching must not have cost the detection it exists for."""
+    frame = pd.DataFrame(
+        {
+            "station": ["Villanueva", "Alhaurín", "Mijas", word],
+            "registered": [900.0, 800.0, 700.0, 123.0],
+            "votes": [400.0, 350.0, 300.0, 45.0],
+        }
+    )
+    assert 3 in find_total_rows(frame)
+
+
+def test_a_total_word_inside_a_longer_label_with_punctuation_is_still_caught():
+    """A real aggregate row is often labelled 'Total:' or 'TOTAL - province'."""
+    for label in ("Total:", "TOTAL - province", "(total)", "Итого:"):
+        frame = pd.DataFrame(
+            {
+                "station": ["a", "b", "c", label],
+                "registered": [900.0, 800.0, 700.0, 123.0],
+            }
+        )
+        assert 3 in find_total_rows(frame), label
+
+
 def test_a_clean_table_has_no_total_row(tmp_path):
     """The quiet half. A detector that fires on an ordinary file is worse than none."""
     data = load(write_header_block_csv(tmp_path / "h.csv"))
