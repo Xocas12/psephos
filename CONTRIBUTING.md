@@ -27,7 +27,7 @@ expects the construction to raise.
 
 ## The bar for a new check
 
-Six things. A check missing any of them will not be merged.
+Seven things. A check missing any of them will not be merged.
 [src/psephos/methods/_template.py](src/psephos/methods/_template.py) is a working example of all
 six against a deliberately trivial statistic, and `tests/test_template.py` is its test file.
 Copy their shape before you invent your own.
@@ -64,7 +64,18 @@ one; if none of them injects the mechanism your check exists to find, say so in 
 request, and add the generator to the conftest with the same care: it must be a named,
 documented mechanism, not a fudge fitted to make your statistic move.
 
-### 5. An underpowered path
+### 5. An interval on the effect
+
+If the check reports an `effect`, it reports `ci_low` and `ci_high` with it, from
+`psephos.interval.bootstrap_ci`, resampling units and stratified by precinct size where the
+check has the sizes. `Finding.__post_init__` refuses an interval that does not contain its own
+effect, which is a real failure mode and not a formality: the plain percentile bootstrap does
+exactly that on any statistic with a floor, such as a distance. If your effect cannot go
+negative, pass `floor=` and report the value the statistic takes under the null beside it,
+because its interval will never contain zero and a reader will otherwise read that as a result.
+[docs/effect_intervals.md](docs/effect_intervals.md) has the reasoning and the measurement.
+
+### 6. An underpowered path
 
 When too few units survive the filters, the check must return a finding flagged `underpowered`
 with no p-value, rather than a null that reads as a clean bill of health. `underpowered` is a
@@ -72,7 +83,7 @@ distinct outcome in this tool for exactly that reason; see [INTERPRETATION.md](I
 Test the path: feed the check too few usable units and assert the flag, the missing p-value, and
 the excluded count.
 
-### 6. A citation, or an explicit statement of novelty
+### 7. A citation, or an explicit statement of novelty
 
 Anything taken from a paper carries the reference, in the module docstring, in the form the
 existing checks use, including the standing caveat that psephos implements published

@@ -24,6 +24,7 @@ from pathlib import Path
 from psephos import __version__
 from psephos.audit import DEFAULT_THRESHOLDS, audit
 from psephos.html_report import to_html
+from psephos.interval import DEFAULT_N_BOOT
 from psephos.report import to_json, to_text
 from psephos.schema import (
     ColumnMap,
@@ -151,12 +152,21 @@ def _cmd_audit(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    if not 0.0 < args.ci_level < 1.0:
+        print(
+            f"error: --ci-level must be between 0 and 1, exclusive; got {args.ci_level}",
+            file=sys.stderr,
+        )
+        return 1
+
     report = audit(
         data,
         thresholds=tuple(args.thresholds) if args.thresholds else DEFAULT_THRESHOLDS,
         n_mc=args.mc,
         seed=args.seed,
         by_size=not args.no_strata,
+        n_boot=0 if args.no_intervals else args.bootstrap,
+        ci_level=args.ci_level,
     )
 
     if args.json:
@@ -237,6 +247,25 @@ def build_parser() -> argparse.ArgumentParser:
     aud.add_argument("--mc", type=int, default=500, help="Monte Carlo replicates (default 500)")
     aud.add_argument("--seed", type=int, default=0, help="random seed (default 0)")
     aud.add_argument("--no-strata", action="store_true", help="skip the per-size-band view")
+    aud.add_argument(
+        "--bootstrap",
+        type=int,
+        default=DEFAULT_N_BOOT,
+        metavar="N",
+        help=f"resamples for the interval on each effect (default {DEFAULT_N_BOOT})",
+    )
+    aud.add_argument(
+        "--ci-level",
+        type=float,
+        default=0.95,
+        metavar="P",
+        help="coverage of those intervals (default 0.95)",
+    )
+    aud.add_argument(
+        "--no-intervals",
+        action="store_true",
+        help="report effects without intervals, which makes a small sample unreadable",
+    )
     aud.add_argument("--json", default=None, metavar="PATH", help="also write a JSON report")
     aud.add_argument(
         "--html",

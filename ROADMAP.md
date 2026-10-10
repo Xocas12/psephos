@@ -56,7 +56,7 @@ interpretable.
 |---|---|
 | [#4](https://github.com/Xocas12/psephos/issues/4) Reference corpus | The tool's largest limitation. A percentile against other elections, not just a p-value. |
 | [#13](https://github.com/Xocas12/psephos/issues/13) Power analysis | So an `ok` finding says what it would have detected. |
-| [#16](https://github.com/Xocas12/psephos/issues/16) Confidence intervals | With 95,000 precincts almost anything is significant; the interval is the part that matters. |
+| [#16](https://github.com/Xocas12/psephos/issues/16) Confidence intervals | **Done.** Stratified bootstrap interval on every effect, printed ahead of the p-value. The naive version excluded its own estimate on honest data; [docs/effect_intervals.md](docs/effect_intervals.md) has the measurement. |
 | [#5](https://github.com/Xocas12/psephos/issues/5) Regional breakdown | Anomalies concentrate. Blocked on #12. |
 | [#9](https://github.com/Xocas12/psephos/issues/9) The anomalous-vote estimator | Implement it properly or record that it will not be implemented. |
 | [#10](https://github.com/Xocas12/psephos/issues/10) Joint turnout and share test | The claim the literature actually makes, rather than bimodality alone. |
@@ -79,7 +79,7 @@ interpretable.
 
 ## The bar for a new check
 
-Six things, and a check missing any of them will not be merged. The full version is
+Seven things, and a check missing any of them will not be merged. The full version is
 [#19](https://github.com/Xocas12/psephos/issues/19).
 
 1. A null stated in one sentence.
@@ -87,8 +87,10 @@ Six things, and a check missing any of them will not be merged. The full version
 3. **A quiet test.** The check must not fire on `clean_election()`. This is the one most often
    skipped and the one that matters most.
 4. A loud test, where the measured effect rises with the injected amount.
-5. A tested underpowered path.
-6. A citation, or an explicit statement that the method is novel here.
+5. An interval on the effect, resampling units within size bands. Also not optional:
+   `Finding.__post_init__` raises on an interval that does not contain its own effect.
+6. A tested underpowered path.
+7. A citation, or an explicit statement that the method is novel here.
 
 ## What psephos will not do
 

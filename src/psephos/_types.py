@@ -68,6 +68,14 @@ class Finding:
     effect : float or None
         Size of the departure in units the title explains, so that a large sample cannot make
         a trivial effect look important.
+    ci_low, ci_high : float or None
+        A confidence interval for ``effect``, from the stratified unit bootstrap of
+        :mod:`psephos.interval`, with the coverage and the method in ``details``. ``None`` where
+        the check has no interval or there were too few units to compute one.
+
+        It is an interval on the precision of the effect, not a second test. An interval that
+        excludes zero adds nothing to the p-value beside it, and for an effect that cannot be
+        negative it never contains zero however honest the data.
     n_used : int
         Units that entered the statistic.
     n_excluded : int
@@ -98,6 +106,8 @@ class Finding:
     statistic: float | None = None
     pvalue: float | None = None
     effect: float | None = None
+    ci_low: float | None = None
+    ci_high: float | None = None
     n_used: int = 0
     n_excluded: int = 0
     slice_name: str = "all"
@@ -107,6 +117,28 @@ class Finding:
     adjusted_pvalue: float | None = None
 
     def __post_init__(self) -> None:
+        if (self.ci_low is None) != (self.ci_high is None):
+            raise ValueError(
+                f"{self.check}: an interval needs both ends; got "
+                f"ci_low={self.ci_low!r}, ci_high={self.ci_high!r}"
+            )
+        if self.ci_low is not None and self.ci_high is not None and self.ci_low > self.ci_high:
+            raise ValueError(
+                f"{self.check}: interval ends are the wrong way round: "
+                f"[{self.ci_low}, {self.ci_high}]"
+            )
+        if (
+            self.ci_low is not None
+            and self.effect is not None
+            and not self.ci_low <= self.effect <= self.ci_high
+        ):
+            # Not a pedantic check. The naive percentile bootstrap on a distance statistic
+            # produces exactly this, and an interval that does not contain the number it is an
+            # interval for misleads a reader as directly as a wrong number would.
+            raise ValueError(
+                f"{self.check}: the interval [{self.ci_low}, {self.ci_high}] does not contain "
+                f"the effect {self.effect} it is an interval for"
+            )
         if self.flag in (Flag.NOTABLE, Flag.STRONG) and not self.confounds:
             raise ValueError(
                 f"{self.check}: a flagged finding must name at least one confound. "
@@ -118,7 +150,8 @@ class Finding:
 
     def __str__(self) -> str:  # pragma: no cover - cosmetic
         p = "" if self.pvalue is None else f" p={self.pvalue:.3g}"
-        return f"[{self.flag.value}] {self.check} ({self.slice_name}): {self.title}{p}"
+        ci = "" if self.ci_low is None else f" ci=[{self.ci_low:.3g}, {self.ci_high:.3g}]"
+        return f"[{self.flag.value}] {self.check} ({self.slice_name}): {self.title}{ci}{p}"
 
 
 @dataclass

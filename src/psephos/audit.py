@@ -13,6 +13,7 @@ from dataclasses import replace
 from psephos._types import AuditReport, Finding, Flag
 from psephos.correction import apply_correction
 from psephos.integrity import run_integrity
+from psephos.interval import DEFAULT_N_BOOT
 from psephos.methods import digits, integer_pct, turnout
 from psephos.schema import ElectionData, SchemaError
 from psephos.size import size_warning, stratify
@@ -50,17 +51,25 @@ def audit(
     n_mc: int = 500,
     seed: int | None = 0,
     by_size: bool = True,
+    n_boot: int = DEFAULT_N_BOOT,
+    ci_level: float = 0.95,
 ) -> AuditReport:
     """Audit one precinct table.
 
-    Returns an :class:`~psephos._types.AuditReport`. Nothing here raises on statistical
-    grounds: a check that cannot run says so and the audit continues.
+        Returns an :class:`~psephos._types.AuditReport`. Nothing here raises on statistical
+        grounds: a check that cannot run says so and the audit continues.
 
-    Before returning, the audit applies the multiple-testing correction of
-    :mod:`psephos.correction`: every finding keeps its raw p-value and gains an adjusted one
-    beside it, no flag is raised or withdrawn by the correction, and the number of hypotheses
-    tested is recorded in the report meta. What counts as one family is argued in
-    docs/multiple_testing.md.
+    Every effect that has one carries a confidence interval from the stratified unit
+        bootstrap of :mod:`psephos.interval`, and the text report prints it before the p-value. The
+        stratification is by registered voters where the check has them, which is every percentage
+        check and, through ``sizes``, the digit and dependence checks too. ``n_boot=0`` turns the
+        intervals off.
+
+        Before returning, the audit applies the multiple-testing correction of
+        :mod:`psephos.correction`: every finding keeps its raw p-value and gains an adjusted one
+        beside it, no flag is raised or withdrawn by the correction, and the number of hypotheses
+        tested is recorded in the report meta. What counts as one family is argued in
+        docs/multiple_testing.md.
     """
     report = AuditReport(
         source=data.source,
@@ -72,6 +81,8 @@ def audit(
                 "n_mc": n_mc,
                 "seed": seed,
                 "by_size": by_size,
+                "n_boot": n_boot,
+                "ci_level": ci_level,
             },
         },
     )
@@ -113,6 +124,8 @@ def audit(
                     seed=seed,
                     slice_name=f"turnout, min_denominator={t}",
                     label="turnout",
+                    n_boot=n_boot,
+                    ci_level=ci_level,
                     # One hypothesis at four thresholds, counted once by the correction.
                     hypothesis="integer_pct:turnout",
                 )
@@ -132,6 +145,8 @@ def audit(
                     seed=seed,
                     slice_name=f"{winner} share, min_denominator={t}",
                     label=f"{winner} share",
+                    n_boot=n_boot,
+                    ci_level=ci_level,
                     hypothesis=f"integer_pct:{winner} share",
                 )
             )
@@ -144,6 +159,12 @@ def audit(
                 check="turnout_share_dependence",
                 weights=valid,
                 winner=winner,
+                # Registered voters, so the resample holds the size mix fixed for this check
+                # too, not only for the percentage ones.
+                sizes=reg,
+                n_boot=n_boot,
+                ci_level=ci_level,
+                seed=seed,
                 hypothesis="turnout_share_dependence",
             )
         )
@@ -172,6 +193,10 @@ def audit(
                 check="last_digit",
                 slice_name=label,
                 label=label,
+                sizes=data.registered() if has_registered else None,
+                n_boot=n_boot,
+                ci_level=ci_level,
+                seed=seed,
                 hypothesis=f"last_digit:{label}",
             )
         )
@@ -204,10 +229,17 @@ def audit(
                     seed=seed,
                     slice_name=f"turnout, {stratum.name}",
                     label="turnout",
+                    n_boot=n_boot,
+                    ci_level=ci_level,
                     # Where the signal lives, not a new hypothesis: the same turnout claim
                     # re-tested within size bands, counted once by the correction.
                     hypothesis="integer_pct:turnout",
                 )
             )
 
+    report.meta["intervals"] = {
+        "level": ci_level,
+        "n_boot": n_boot,
+        "n_findings_with_ci": sum(1 for f in report.findings if f.ci_low is not None),
+    }
     return apply_correction(report)
