@@ -15,6 +15,7 @@ from psephos.correction import apply_correction
 from psephos.integrity import run_integrity
 from psephos.interval import DEFAULT_N_BOOT
 from psephos.methods import digits, integer_pct, turnout
+from psephos.progress import StderrProgress
 from psephos.schema import ElectionData, SchemaError
 from psephos.size import size_warning, stratify
 
@@ -53,23 +54,31 @@ def audit(
     by_size: bool = True,
     n_boot: int = DEFAULT_N_BOOT,
     ci_level: float = 0.95,
+    progress: StderrProgress | None = None,
 ) -> AuditReport:
     """Audit one precinct table.
 
         Returns an :class:`~psephos._types.AuditReport`. Nothing here raises on statistical
         grounds: a check that cannot run says so and the audit continues.
 
-    Every effect that has one carries a confidence interval from the stratified unit
-        bootstrap of :mod:`psephos.interval`, and the text report prints it before the p-value. The
-        stratification is by registered voters where the check has them, which is every percentage
-        check and, through ``sizes``, the digit and dependence checks too. ``n_boot=0`` turns the
-        intervals off.
+    Every effect that has one carries a confidence interval from the stratified unit bootstrap
+    of :mod:`psephos.interval`, and the text report prints it before the p-value. The
+    stratification is by registered voters where the check has them, which is every percentage
+    check and, through ``sizes``, the digit and dependence checks too. ``n_boot=0`` turns the
+    intervals off.
 
-        Before returning, the audit applies the multiple-testing correction of
-        :mod:`psephos.correction`: every finding keeps its raw p-value and gains an adjusted one
-        beside it, no flag is raised or withdrawn by the correction, and the number of hypotheses
-        tested is recorded in the report meta. What counts as one family is argued in
-        docs/multiple_testing.md.
+    ``progress``, when given, reports replicate counts for the Monte Carlo checks on stderr; see
+    :mod:`psephos.progress`. It changes nothing about the result.
+
+    The sweep draws its own null at each threshold rather than sharing one across the four,
+    even though the usable sets nest and sharing would be the largest saving available. Why not,
+    and what the audit costs, is in docs/performance.md.
+
+    Before returning, the audit applies the multiple-testing correction of
+    :mod:`psephos.correction`: every finding keeps its raw p-value and gains an adjusted one
+    beside it, no flag is raised or withdrawn by the correction, and the number of hypotheses
+    tested is recorded in the report meta. What counts as one family is argued in
+    docs/multiple_testing.md.
     """
     report = AuditReport(
         source=data.source,
@@ -86,6 +95,7 @@ def audit(
             },
         },
     )
+    prog = progress if progress is not None else StderrProgress(enabled=False)
     report.integrity = run_integrity(data)
 
     has_registered = bool(data.columns.registered)
@@ -126,6 +136,7 @@ def audit(
                     label="turnout",
                     n_boot=n_boot,
                     ci_level=ci_level,
+                    progress=prog.for_check(f"integer percentage, turnout, min_denominator={t}"),
                     # One hypothesis at four thresholds, counted once by the correction.
                     hypothesis="integer_pct:turnout",
                 )
@@ -147,6 +158,9 @@ def audit(
                     label=f"{winner} share",
                     n_boot=n_boot,
                     ci_level=ci_level,
+                    progress=prog.for_check(
+                        f"integer percentage, {winner} share, min_denominator={t}"
+                    ),
                     hypothesis=f"integer_pct:{winner} share",
                 )
             )
@@ -245,12 +259,14 @@ def audit(
                     label="turnout",
                     n_boot=n_boot,
                     ci_level=ci_level,
+                    progress=prog.for_check(f"integer percentage, turnout, {stratum.name}"),
                     # Where the signal lives, not a new hypothesis: the same turnout claim
                     # re-tested within size bands, counted once by the correction.
                     hypothesis="integer_pct:turnout",
                 )
             )
 
+    prog.done()
     report.meta["intervals"] = {
         "level": ci_level,
         "n_boot": n_boot,

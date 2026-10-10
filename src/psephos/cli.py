@@ -25,6 +25,7 @@ from psephos import __version__
 from psephos.audit import DEFAULT_THRESHOLDS, audit
 from psephos.html_report import to_html
 from psephos.interval import DEFAULT_N_BOOT
+from psephos.progress import StderrProgress
 from psephos.report import to_json, to_text
 from psephos.schema import (
     ColumnMap,
@@ -159,6 +160,9 @@ def _cmd_audit(args: argparse.Namespace) -> int:
         )
         return 1
 
+    # On by default when stderr is a terminal, so a piped or redirected run stays clean and an
+    # interactive one does not sit silent for minutes. --progress forces it on for a log.
+    show_progress = args.progress or (not args.no_progress and sys.stderr.isatty())
     report = audit(
         data,
         thresholds=tuple(args.thresholds) if args.thresholds else DEFAULT_THRESHOLDS,
@@ -167,6 +171,7 @@ def _cmd_audit(args: argparse.Namespace) -> int:
         by_size=not args.no_strata,
         n_boot=0 if args.no_intervals else args.bootstrap,
         ci_level=args.ci_level,
+        progress=StderrProgress(enabled=show_progress),
     )
 
     if args.json:
@@ -265,6 +270,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-intervals",
         action="store_true",
         help="report effects without intervals, which makes a small sample unreadable",
+    )
+    # Contradictory, so argparse refuses both rather than silently resolving to progress-on.
+    progress_group = aud.add_mutually_exclusive_group()
+    progress_group.add_argument(
+        "--progress",
+        action="store_true",
+        help="report Monte Carlo progress on stderr even when stderr is not a terminal",
+    )
+    progress_group.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="never report progress (the default when stderr is not a terminal)",
     )
     aud.add_argument("--json", default=None, metavar="PATH", help="also write a JSON report")
     aud.add_argument(
