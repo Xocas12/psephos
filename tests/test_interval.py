@@ -85,6 +85,51 @@ def test_resampling_is_stratified_so_the_size_mix_is_held_fixed():
     assert set(seen) == {(400, 100)}, "every resample must keep 400 small and 100 large units"
 
 
+def test_one_size_band_is_not_reported_as_stratified():
+    """A per-size-band finding passes the sizes of one band, so every unit is in one stratum.
+
+    Claiming "stratified by precinct size" there describes the argument, not the method: there
+    is nothing to hold fixed. This is a normal path - the audit produces one such finding per
+    size band on every run - so the label has to tell the truth on it.
+    """
+    sizes = np.full(400, 150.0)  # all inside the 100-249 band
+    _, _, details = bootstrap_ci(
+        lambda idx: float(sizes[idx].mean()),
+        sizes.size,
+        estimate=150.0,
+        sizes=sizes,
+        n_boot=60,
+        seed=0,
+    )
+    assert details["ci_n_strata"] == 1
+    assert details["ci_stratified_by"] is None, "one band is not stratification"
+    assert "unstratified in effect" in str(details["ci_note"])
+
+
+def test_several_size_bands_are_reported_as_stratified():
+    sizes = np.concatenate([np.full(200, 150.0), np.full(200, 1500.0)])
+    _, _, details = bootstrap_ci(
+        lambda idx: float(sizes[idx].mean()),
+        sizes.size,
+        estimate=float(sizes.mean()),
+        sizes=sizes,
+        n_boot=60,
+        seed=0,
+    )
+    assert details["ci_n_strata"] == 2
+    assert details["ci_stratified_by"] == "precinct size"
+
+
+def test_the_bootstrap_uses_the_size_bands_size_py_defines():
+    """docs/effect_intervals.md says the bands are the ones size.py uses. Make that true by
+    construction rather than by two lists that happen to match today."""
+    import inspect
+
+    from psephos.size import DEFAULT_EDGES
+
+    assert inspect.signature(bootstrap_ci).parameters["edges"].default is DEFAULT_EDGES
+
+
 def test_unstratified_resampling_is_reported_as_such():
     x = np.random.default_rng(0).normal(0.0, 1.0, 500)
     _, _, details = bootstrap_ci(
@@ -130,16 +175,42 @@ def test_n_boot_zero_turns_intervals_off():
 
 
 def test_a_statistic_that_is_mostly_undefined_gets_no_interval():
-    """Quantiles taken from the few resamples that worked would be drawn from a biased subset."""
-    lo, hi, details = bootstrap_ci(
-        lambda idx: float("nan") if idx[0] % 1 == 0 else 1.0,
-        500,
-        estimate=1.0,
-        n_boot=100,
-        seed=0,
-    )
+    """Quantiles taken from the few resamples that worked would be drawn from a biased subset.
+
+    The condition has to actually be sometimes-false: an earlier version of this test used
+    `idx[0] % 1 == 0`, which is true for every integer, so the statistic was always NaN and the
+    threshold below was never the thing being exercised.
+    """
+    calls = []
+
+    def mostly_nan(idx):
+        calls.append(1)
+        return 1.0 if len(calls) <= 10 else float("nan")
+
+    lo, hi, details = bootstrap_ci(mostly_nan, 500, estimate=1.0, n_boot=100, seed=0)
+    assert 10 < len(calls), "the statistic must have returned both finite values and NaN"
     assert lo is None and hi is None
-    assert "finite" in str(details["ci_note"])
+    assert "only 10 of 100" in str(details["ci_note"])
+
+
+def test_some_undefined_resamples_above_the_threshold_are_reported_not_hidden():
+    """Above the halfway threshold the quantiles are still taken, so say what they came from.
+
+    Silence here is the failure mode: an interval computed from 60 of 100 resamples looks
+    exactly like one computed from all 100, and is that much less certain than its width says.
+    """
+    calls = []
+
+    def sometimes_nan(idx):
+        calls.append(1)
+        # 70 finite, 30 NaN: above the n_boot // 2 threshold, so an interval IS returned.
+        return float(len(calls)) if len(calls) <= 70 else float("nan")
+
+    lo, hi, details = bootstrap_ci(sometimes_nan, 500, estimate=35.0, n_boot=100, seed=0)
+    assert lo is not None and hi is not None
+    note = str(details["ci_note"])
+    assert "30 of 100 resamples produced no finite value" in note
+    assert details["ci_resamples_used"] == 70
 
 
 def test_level_must_be_a_probability():

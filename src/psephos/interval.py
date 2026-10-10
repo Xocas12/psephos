@@ -64,6 +64,8 @@ from collections.abc import Callable, Iterator, Sequence
 
 import numpy as np
 
+from psephos.size import DEFAULT_EDGES
+
 #: Resamples by default, chosen by measuring how much the interval ends move when only the
 #: resampling seed changes, as a share of the interval's own width: 7.0 per cent at 200
 #: resamples, 4.9 at 500, 3.6 at 1,000 and 3.1 at 2,000. A thousand is where that stops paying,
@@ -126,7 +128,7 @@ def bootstrap_ci(
     *,
     estimate: float,
     sizes: np.ndarray | None = None,
-    edges: Sequence[float] = (0.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, np.inf),
+    edges: Sequence[float] = DEFAULT_EDGES,
     n_boot: int = DEFAULT_N_BOOT,
     level: float = 0.95,
     floor: float | None = None,
@@ -224,6 +226,10 @@ def bootstrap_ci(
         )
 
     n_strata = int(np.unique(codes[codes >= 0]).size)
+    # Only claim stratification when it actually happened. A per-size-band finding passes the
+    # sizes of one band, so every unit lands in the same stratum and the resample is plain:
+    # saying "stratified by precinct size" there would describe the argument, not the method.
+    stratified = sizes is not None and n_strata > 1
     details: dict[str, object] = {
         "ci_level": level,
         "ci_method": "bias-shifted percentile bootstrap over units",
@@ -231,7 +237,7 @@ def bootstrap_ci(
         "ci_floored_at": floor if clamped else None,
         "ci_n_boot": n_boot,
         "ci_n_strata": n_strata,
-        "ci_stratified_by": "precinct size" if sizes is not None else None,
+        "ci_stratified_by": "precinct size" if stratified else None,
         "ci_resamples_used": int(finite.size),
         "ci_seed": seed,
         "ci_note": (
@@ -245,6 +251,19 @@ def bootstrap_ci(
         details["ci_note"] += (
             " This check's inputs carry no precinct size, so the resample is unstratified and "
             "the interval may be wider than the design warrants."
+        )
+    elif not stratified:
+        details["ci_note"] += (
+            f" Every unit here falls in one size band, so the resample is unstratified in "
+            f"effect: {n_strata} band, nothing to hold fixed."
+        )
+    if finite.size < n_boot:
+        # Above the half-way threshold the quantiles are still taken, so say what they were
+        # taken from. Silence here would let a partly-undefined statistic read as a clean one.
+        details["ci_note"] += (
+            f" {n_boot - finite.size} of {n_boot} resamples produced no finite value and were "
+            "dropped, so the interval comes from the remainder and is that much less certain "
+            "than its width suggests."
         )
     return lo, hi, details
 

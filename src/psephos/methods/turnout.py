@@ -109,7 +109,10 @@ def turnout_share_dependence(
     rho = float(rho)
     pvalue = float(pvalue)
 
-    cut = _quantile(tt, 0.9)
+    # np.quantile for the one reported cut, so this check's published value is bit-for-bit
+    # what it was before the bootstrap arrived. _quantile is the O(n) equivalent used only
+    # inside the resampling loop, where the cut is recomputed a thousand times.
+    cut = float(np.quantile(tt, 0.9))
     top = tt >= cut
     if top.sum() == 0 or (~top).sum() == 0:
         gap = float("nan")
@@ -156,7 +159,7 @@ def turnout_share_dependence(
     interval = (
         ""
         if ci_low is None or ci_high is None
-        else f" (95 per cent interval [{ci_low:+.1f}, {ci_high:+.1f}])"
+        else f" ({100 * ci_level:g} per cent interval [{ci_low:+.1f}, {ci_high:+.1f}])"
     )
     title = (
         f"Share for {winner} rises with turnout: Spearman rho {rho:+.3f}. "
@@ -197,6 +200,10 @@ def turnout_roundness(
     turnout_pct: np.ndarray,
     *,
     slice_name: str = "all",
+    sizes: np.ndarray | None = None,
+    n_boot: int = DEFAULT_N_BOOT,
+    ci_level: float = 0.95,
+    seed: int | None = 0,
 ) -> Finding:
     """Descriptive: how turnout is distributed across the range, and where it clusters.
 
@@ -220,6 +227,19 @@ def turnout_roundness(
     tt = t[usable]
     deciles = np.quantile(tt, np.arange(0, 11) / 10.0)
     near_full = float(np.mean(tt >= 95.0))
+    # Descriptive, but it still reports an effect, and the bar in CONTRIBUTING.md is that an
+    # effect comes with an interval. A share of units above 95 per cent read off 300 units is
+    # not the same finding as the same share read off 30,000.
+    ci_low, ci_high, ci_details = bootstrap_ci(
+        lambda idx: float(np.mean(tt[idx] >= 95.0)),
+        n_used,
+        estimate=near_full,
+        floor=0.0,
+        sizes=None if sizes is None else np.asarray(sizes, dtype=float)[usable],
+        n_boot=n_boot,
+        level=ci_level,
+        seed=None if seed is None else seed + 404,
+    )
     return Finding(
         check="turnout_distribution",
         title=(
@@ -229,6 +249,8 @@ def turnout_roundness(
         flag=Flag.OK,
         statistic=float(np.median(tt)),
         effect=near_full,
+        ci_low=ci_low,
+        ci_high=ci_high,
         n_used=n_used,
         n_excluded=int(usable.size - n_used),
         slice_name=slice_name,
@@ -236,5 +258,6 @@ def turnout_roundness(
             "deciles": deciles.tolist(),
             "share_at_or_above_95pct": near_full,
             "descriptive_only": True,
+            **ci_details,
         },
     )

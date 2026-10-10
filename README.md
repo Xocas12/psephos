@@ -146,8 +146,8 @@ measured three ways. Reported as dependence, not as a vote count.
 **By precinct size.** The percentage checks again, within size bands, so you can see whether a
 signal lives in the small units.
 
-**With an interval on every effect.** Each effect is printed with a confidence interval before
-its p-value, from a bootstrap over precincts within size bands, so that the same number measured
+**With an interval on every effect.** Every check that reports one reports a confidence interval
+on it, printed before its p-value, from a bootstrap over precincts within size bands, so that the same number measured
 on 300 units and on 30,000 does not read the same way. The interval is not a second test, and
 for an effect that cannot be negative it never contains zero; the reasoning, and the bias that
 had to be corrected to keep it honest, are in

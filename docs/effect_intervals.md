@@ -22,6 +22,18 @@ Checks whose inputs do not carry a precinct size — `last_digit_uniformity` cal
 alone — resample unstratified and say so in `details["ci_stratified_by"]`. The audit passes the
 registered-voters column wherever it has one, so in an audit they are stratified too.
 
+A per-size-band finding is the case worth naming: it is handed the sizes of one band, so every
+unit lands in the same stratum and there is nothing to hold fixed. Those findings report
+`ci_stratified_by: null` and `ci_n_strata: 1`, because claiming stratification there would
+describe the argument rather than the method — four such findings appear in a default audit.
+
+When some resamples produce no finite value, how many goes in `ci_note`. Above the halfway
+threshold an interval is still returned, and one computed from 70 of 100 resamples looks exactly
+like one computed from all 100 unless it says otherwise.
+
+The bands are imported from `size.py` rather than restated, so "the ones `size.py` uses" is true
+by construction instead of by two lists that happen to agree today.
+
 ## The method, and the bias that forced it
 
 A percentile bootstrap, shifted by the bootstrap's own estimate of its bias:
@@ -81,6 +93,17 @@ Last digit of PartyA across 3490 units: most common 1 (11.0 per cent), least com
 0.0146 against an expected 0.0203 is a dataset slightly *closer* to uniform than chance
 produces. A reader given only the first number and an interval excluding zero could have
 concluded the opposite.
+
+## Every check that reports an effect
+
+All of them, not only the three the issue named. `last_two_digit_pairs` and `turnout_roundness`
+are labelled descriptive but still report an effect, and `_template.py` is the canonical example
+of the contribution bar, so all three gained one too. A default audit now has an interval on
+every one of its 17 findings that carries an effect, which is what lets the README say so.
+
+The coverage in a finding's title comes from `ci_level`, not from the string "95 per cent":
+`--ci-level 0.8` puts "80 per cent interval" in the title. A hardcoded figure would have
+contradicted the report's own EFFECT INTERVALS section two sections further down.
 
 ## Why the interval comes first
 

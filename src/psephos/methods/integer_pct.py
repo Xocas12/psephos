@@ -173,7 +173,10 @@ def integer_excess(
     interval = (
         ""
         if ci_low is None or ci_high is None
-        else f", 95 per cent interval [{100 * ci_low:+.2f}, {100 * ci_high:+.2f}]"
+        # The coverage is stated from ci_level, not hardcoded: --ci-level is plumbed through, and
+        # a title claiming 95 per cent under --ci-level 0.8 would contradict the report's own
+        # EFFECT INTERVALS section two sections below it.
+        else (f", {100 * ci_level:g} per cent interval [{100 * ci_low:+.2f}, {100 * ci_high:+.2f}]")
     )
     title = (
         f"{observed} of {n_used} units land on a whole-number {label} percentage; "

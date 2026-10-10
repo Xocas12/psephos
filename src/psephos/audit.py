@@ -168,7 +168,17 @@ def audit(
                 hypothesis="turnout_share_dependence",
             )
         )
-        report.add(_safe(turnout.turnout_roundness, data.turnout(), check="turnout_distribution"))
+        report.add(
+            _safe(
+                turnout.turnout_roundness,
+                data.turnout(),
+                check="turnout_distribution",
+                sizes=reg,
+                n_boot=n_boot,
+                ci_level=ci_level,
+                seed=seed,
+            )
+        )
     else:
         report.add(
             Finding(
@@ -207,6 +217,10 @@ def audit(
             check="last_two_digits",
             slice_name=winner,
             label=winner,
+            sizes=data.registered() if has_registered else None,
+            n_boot=n_boot,
+            ci_level=ci_level,
+            seed=seed,
             hypothesis=f"last_two_digits:{winner}",
         )
     )

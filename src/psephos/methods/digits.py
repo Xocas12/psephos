@@ -159,6 +159,10 @@ def last_two_digit_pairs(
     min_count: int = 1000,
     slice_name: str = "all",
     label: str = "votes",
+    sizes: np.ndarray | None = None,
+    n_boot: int = DEFAULT_N_BOOT,
+    ci_level: float = 0.95,
+    seed: int | None = 0,
 ) -> Finding:
     """Descriptive summary of the last two digits: repeated pairs against adjacent pairs.
 
@@ -193,6 +197,23 @@ def last_two_digit_pairs(
     repeated = observed[tens == ones].sum() / n_used
     adjacent = observed[np.abs(tens - ones) == 1].sum() / n_used
 
+    # The reported effect is the repeated-pair share above the uniform 0.10. Signed, so unlike
+    # the total variation distance in the check above it has no floor and its interval can
+    # straddle zero.
+    def _repeated_excess(idx: np.ndarray) -> float:
+        counts_i = np.bincount(vals[idx], minlength=100).astype(float)
+        return float(counts_i[tens == ones].sum() / idx.size - 0.10)
+
+    ci_low, ci_high, ci_details = bootstrap_ci(
+        _repeated_excess,
+        n_used,
+        estimate=float(repeated - 0.10),
+        sizes=None if sizes is None else np.asarray(sizes, dtype=float)[usable],
+        n_boot=n_boot,
+        level=ci_level,
+        seed=None if seed is None else seed + 505,
+    )
+
     flag = Flag.NOTABLE if pvalue <= 0.05 else Flag.OK
     title = (
         f"Last two digits of {label}: repeated pairs {100 * repeated:.1f} per cent "
@@ -206,6 +227,8 @@ def last_two_digit_pairs(
         statistic=chi2,
         pvalue=pvalue,
         effect=float(repeated - 0.10),
+        ci_low=ci_low,
+        ci_high=ci_high,
         n_used=n_used,
         n_excluded=n_excluded,
         slice_name=slice_name,
@@ -220,5 +243,6 @@ def last_two_digit_pairs(
             "label": label,
             "direction_unverified": True,
             "excluded_because": f"count below {min_count} or missing",
+            **ci_details,
         },
     )

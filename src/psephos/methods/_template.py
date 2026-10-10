@@ -40,6 +40,7 @@ import numpy as np
 from scipy import stats
 
 from psephos._types import Finding, Flag
+from psephos.interval import DEFAULT_N_BOOT, bootstrap_ci
 
 #: Counts below this are too small for the last digit to be free, the same reasoning as the
 #: real digit check. Units below it are excluded and counted.
@@ -72,6 +73,10 @@ def zero_five_ending_share(
     min_count: int = DEFAULT_MIN_COUNT,
     slice_name: str = "all",
     label: str = "votes",
+    sizes: np.ndarray | None = None,
+    n_boot: int = DEFAULT_N_BOOT,
+    ci_level: float = 0.95,
+    seed: int | None = 0,
 ) -> Finding:
     """Test the share of counts ending in 0 or 5 against a uniform-last-digit null.
 
@@ -85,6 +90,13 @@ def zero_five_ending_share(
         Which subset this was computed on, for the report.
     label : str
         What the counts are, for the title.
+    sizes : array-like, optional
+        Precinct size per unit, so the bootstrap behind ``ci_low``/``ci_high`` can be stratified
+        by it. Without it the resample is unstratified and the finding says so.
+    n_boot, ci_level, seed : int, float, int
+        The interval. Item 5 of the bar in CONTRIBUTING.md: a check that reports an effect
+        reports an interval on it, because the same effect on 300 units and on 30,000 is not the
+        same finding.
     """
     x = np.asarray(counts, dtype=float)
     usable = np.isfinite(x) & (x >= min_count)
@@ -106,7 +118,8 @@ def zero_five_ending_share(
         )
 
     last_digits = np.rint(x[usable]).astype(np.int64) % 10
-    observed = int(np.isin(last_digits, (0, 5)).sum())
+    ends_in_zero_or_five = np.isin(last_digits, (0, 5))
+    observed = int(ends_in_zero_or_five.sum())
     share = observed / n_used
     excess = share - NULL_SHARE
 
@@ -117,6 +130,19 @@ def zero_five_ending_share(
     pvalue = float(stats.binom.sf(observed - 1, n_used, NULL_SHARE))
     sd = float(np.sqrt(n_used * NULL_SHARE * (1.0 - NULL_SHARE)))
     z = (observed - n_used * NULL_SHARE) / sd
+
+    # An interval on the effect, which item 5 of the bar in CONTRIBUTING.md requires of every
+    # check that reports one. The statistic is a share, so the resampled quantity is the same
+    # share recomputed on the resampled units; `sizes` is accepted so an audit can stratify it.
+    ci_low, ci_high, ci_details = bootstrap_ci(
+        lambda idx: float(np.mean(ends_in_zero_or_five[idx])) - NULL_SHARE,
+        n_used,
+        estimate=float(excess),
+        sizes=None if sizes is None else np.asarray(sizes, dtype=float)[usable],
+        n_boot=n_boot,
+        level=ci_level,
+        seed=None if seed is None else seed + 606,
+    )
 
     # Two conditions for the strong flag, as in the real checks: a p-value alone grows more
     # impressive as the sample grows at a fixed departure, so a large excess is required too.
@@ -140,6 +166,8 @@ def zero_five_ending_share(
         statistic=float(z),
         pvalue=pvalue,
         effect=float(excess),
+        ci_low=ci_low,
+        ci_high=ci_high,
         n_used=n_used,
         n_excluded=n_excluded,
         slice_name=slice_name,
@@ -149,6 +177,7 @@ def zero_five_ending_share(
             "share": share,
             "null_share": NULL_SHARE,
             "expected_endings": n_used * NULL_SHARE,
+            **ci_details,
             "min_count": min_count,
             "label": label,
             "excluded_because": f"count below {min_count} or missing",

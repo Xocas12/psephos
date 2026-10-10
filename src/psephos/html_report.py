@@ -88,8 +88,6 @@ def _interpretation_html() -> str:
 
 def _finding_html(f: Finding) -> str:
     bits = []
-    if f.statistic is not None:
-        bits.append(f"stat={f.statistic:.4g}")
     # Effect first, then the interval, then the p-value: same order as the text report, and
     # for the same reason.
     if f.effect is not None:
@@ -97,6 +95,8 @@ def _finding_html(f: Finding) -> str:
             bits.append(f"effect={f.effect:.4g} [{f.ci_low:.4g}, {f.ci_high:.4g}]")
         else:
             bits.append(f"effect={f.effect:.4g}")
+    if f.statistic is not None:
+        bits.append(f"stat={f.statistic:.4g}")
     if f.pvalue is not None:
         bits.append(f"p={f.pvalue:.4g}")
     if f.adjusted_pvalue is not None:

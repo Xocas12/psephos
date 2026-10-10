@@ -29,7 +29,7 @@ expects the construction to raise.
 
 Seven things. A check missing any of them will not be merged.
 [src/psephos/methods/_template.py](src/psephos/methods/_template.py) is a working example of all
-six against a deliberately trivial statistic, and `tests/test_template.py` is its test file.
+seven against a deliberately trivial statistic, and `tests/test_template.py` is its test file.
 Copy their shape before you invent your own.
 
 ### 1. A null stated in one sentence
