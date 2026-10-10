@@ -22,6 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 parquet = ["pyarrow>=14.0"]
+excel = ["openpyxl>=3.1"]
 yaml = ["pyyaml>=6.0"]
 plots = ["matplotlib>=3.8"]
 
@@ -38,6 +39,7 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.6",
     "pyarrow>=14.0",
+    "openpyxl>=3.1",
     "pyyaml>=6.0",
     "matplotlib>=3.8",
 ]
@@ -63,3 +65,8 @@ ignore = ["E501", "RUF012"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B011", "PD"]
+# This file exists to contain the characters RUF001 warns about. Cyrillic column names and
+# non-breaking spaces as thousands separators are what the files in issue #14 are made of, so a
+# warning that they might be confused for Latin letters and ordinary spaces is the point.
+"tests/conftest_messy.py" = ["B011", "PD", "RUF001"]
+"tests/test_reading.py" = ["B011", "PD", "RUF001"]

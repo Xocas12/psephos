@@ -67,7 +67,7 @@ interpretable.
 | Issue | |
 |---|---|
 | [#11](https://github.com/Xocas12/psephos/issues/11) Multi-round, multi-member, preferential systems | Today a multi-member ballot triggers a false integrity alarm. |
-| [#14](https://github.com/Xocas12/psephos/issues/14) Messy real files | Encodings, Excel, multi-row headers, total rows appended to the data. |
+| [#14](https://github.com/Xocas12/psephos/issues/14) Messy real files | **Done.** Encodings, Excel, merged multi-row headers, separator sniffing, thousands separators, appended total rows — each reported rather than repaired. [docs/messy_files.md](docs/messy_files.md). |
 | [#15](https://github.com/Xocas12/psephos/issues/15) Column-map files | So the mapping decisions can be reviewed and diffed. |
 | [#3](https://github.com/Xocas12/psephos/issues/3) Plots and HTML report | The sawtooth should be visible, not taken on trust. |
 | [#19](https://github.com/Xocas12/psephos/issues/19) Contribution guide | The bar for a new check, written down. |

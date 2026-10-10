@@ -146,6 +146,13 @@ measured three ways. Reported as dependence, not as a vote count.
 **By precinct size.** The percentage checks again, within size bands, so you can see whether a
 signal lives in the small units.
 
+**From the file as published.** CSV, TSV, parquet and Excel. Windows-1251 and the other
+single-byte encodings, letterhead above the table, two-row headers with merged cells,
+semicolon-delimited files, counts written `1 234` or `1.234`, and a national total appended as if
+it were a precinct. Every one of those is reported rather than quietly repaired, in a section the
+report prints before any statistic, because a silent repair becomes an invisible assumption under
+every number that follows. [docs/messy_files.md](docs/messy_files.md) has the detail.
+
 ## What it does not do
 
 - Tell you whether an election was fraudulent.
@@ -157,6 +164,10 @@ signal lives in the small units.
   in [docs/why_no_benford.md](docs/why_no_benford.md).
 - Compare your election against others. **This is the biggest gap**: a statistic from one
   election means little without a baseline. See issue #4.
+- Remove anything from your file. A row that looks like a national total is flagged, loudly, and
+  left where it is: dropping a row is a decision about the data rather than about the file. That
+  one matters more than it sounds — a total row counted as a precinct is a single unit the size of
+  the territory, and it passes every other integrity check.
 - Handle multi-round, multi-member or preferential systems properly yet. See issue #11.
 
 ## Honest status

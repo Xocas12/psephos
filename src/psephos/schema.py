@@ -17,6 +17,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from psephos.reading import read_table
+
 #: Candidate column names for the roles psephos needs, lowercased and matched as substrings.
 #: Extend these rather than special-casing a dataset. Cyrillic terms are included because the
 #: largest openly published precinct-level datasets use them.
@@ -268,6 +270,14 @@ class ElectionData:
     frame: pd.DataFrame
     columns: ColumnMap
     source: str = "<memory>"
+    #: What the loader had to do to read the file: the encoding it guessed, the header block it
+    #: skipped, the columns it parsed out of text, the rows that look like totals. Empty for a
+    #: table built in memory. These are reported before any statistic, because each one is an
+    #: assumption underneath every number that follows.
+    load_notes: list[str] = field(default_factory=list)
+    #: Row positions that look like an aggregate rather than a precinct. The loader does not
+    #: remove them; :func:`psephos.integrity.check_total_rows` reports them.
+    suspected_total_rows: list[int] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if len(self.frame) == 0:
@@ -347,16 +357,31 @@ def load(
     *,
     columns: ColumnMap | None = None,
     vote_pattern: str | None = None,
+    encoding: str | None = None,
+    sheet: str | int = 0,
+    header_rows: int | None = None,
     **read_kwargs: Any,
 ) -> ElectionData:
-    """Read a precinct table from CSV, TSV or parquet and map its columns."""
+    """Read a precinct table from CSV, TSV, parquet or Excel, and map its columns.
+
+    The reading itself is :mod:`psephos.reading`, which handles the shapes commissions actually
+    publish — a non-UTF-8 encoding, letterhead above the table, a two-row header with merged
+    cells, counts written with thousands separators, a national total appended as a row — and
+    records every one of them in :attr:`ElectionData.load_notes` rather than repairing the file
+    quietly.
+
+    ``encoding`` overrides the encoding detection, ``sheet`` picks a worksheet and
+    ``header_rows`` overrides how many rows are taken as the header.
+    """
     path = Path(path)
-    suffix = path.suffix.lower()
-    if suffix in {".parquet", ".pq"}:
-        df = pd.read_parquet(path, **read_kwargs)
-    elif suffix in {".tsv", ".tab"}:
-        df = pd.read_csv(path, sep="\t", **read_kwargs)
-    else:
-        df = pd.read_csv(path, **read_kwargs)
-    cmap = columns if columns is not None else autodetect(df, vote_pattern=vote_pattern)
-    return ElectionData(frame=df, columns=cmap, source=str(path))
+    result = read_table(
+        path, encoding=encoding, sheet=sheet, header_rows=header_rows, **read_kwargs
+    )
+    cmap = columns if columns is not None else autodetect(result.frame, vote_pattern=vote_pattern)
+    return ElectionData(
+        frame=result.frame,
+        columns=cmap,
+        source=str(path),
+        load_notes=result.notes,
+        suspected_total_rows=result.suspected_total_rows,
+    )
