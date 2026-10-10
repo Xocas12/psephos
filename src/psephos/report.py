@@ -172,6 +172,17 @@ def to_text(report: AuditReport, *, verbose: bool = False) -> str:
         for n in notes:
             out.append(f"  - {n}")
 
+    load_notes = report.meta.get("load_notes") or []
+    if load_notes:
+        out.append("")
+        out.append("HOW THE FILE WAS READ")
+        out.append(
+            "  Each line is an assumption underneath every number below. A loader that repaired "
+            "this file silently would have hidden them."
+        )
+        for n in load_notes:
+            out.append(f"  - {n}")
+
     if report.meta.get("size_note"):
         out.append("")
         out.append("PRECINCT SIZE")

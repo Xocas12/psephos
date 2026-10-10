@@ -6,6 +6,8 @@
     psephos columns results.csv --write-map draft.yaml
     psephos audit results.csv --map election.yaml
     psephos audit results.csv --html report.html
+    psephos audit results.csv --encoding cp1251
+    psephos audit results.xlsx --sheet "Precincts" --header-rows 2
     psephos benford
 
 Exit codes: 0 when the audit ran, 1 when it could not run at all (a missing file, an unreadable
@@ -26,12 +28,13 @@ from psephos.audit import DEFAULT_THRESHOLDS, audit
 from psephos.html_report import to_html
 from psephos.interval import DEFAULT_N_BOOT
 from psephos.progress import StderrProgress
+from psephos.reading import SpreadsheetError, read_table
 from psephos.report import to_json, to_text
 from psephos.schema import (
     ColumnMap,
+    ElectionData,
     SchemaError,
     autodetect,
-    load,
     load_column_map,
     write_column_map,
 )
@@ -60,19 +63,28 @@ def _build_map(args: argparse.Namespace, df_columns: list[str]) -> ColumnMap | N
 
 
 def _cmd_columns(args: argparse.Namespace) -> int:
-    import pandas as pd
-
     path = Path(args.path)
     if not path.exists():
         print(f"error: no such file: {path}", file=sys.stderr)
         return 1
-    df = (
-        pd.read_parquet(path)
-        if path.suffix.lower() in {".parquet", ".pq"}
-        else pd.read_csv(path, sep="\t" if path.suffix.lower() in {".tsv", ".tab"} else ",")
-    )
+    args.sheet = _normalise_sheet(args.sheet)
+    # The same reader the audit uses. Showing the columns of a differently-read table would make
+    # this subcommand useless for exactly the files it is most needed on.
+    try:
+        result = read_table(
+            path, encoding=args.encoding, sheet=args.sheet, header_rows=args.header_rows
+        )
+    except (SpreadsheetError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    df = result.frame
     cmap = autodetect(df, vote_pattern=args.vote_pattern)
     print(f"{path}: {len(df)} rows, {len(df.columns)} columns\n")
+    if result.notes:
+        print("HOW THE FILE WAS READ")
+        for n in result.notes:
+            print(f"  - {n}")
+        print()
     print("COLUMNS")
     for c in df.columns:
         print(f"  {c!r}  ({df[c].dtype})")
@@ -120,13 +132,20 @@ def _reject_map_conflicts(args: argparse.Namespace) -> None:
         )
 
 
-def _cmd_audit(args: argparse.Namespace) -> int:
-    import pandas as pd
+def _normalise_sheet(value: str | int) -> str | int:
+    """A worksheet given as a number is an index; anything else is a name."""
+    if isinstance(value, int):
+        return value
+    text = str(value)
+    return int(text) if text.lstrip("-").isdigit() else text
 
+
+def _cmd_audit(args: argparse.Namespace) -> int:
     path = Path(args.path)
     if not path.exists():
         print(f"error: no such file: {path}", file=sys.stderr)
         return 1
+    args.sheet = _normalise_sheet(args.sheet)
     if args.html:
         # Checked before the audit, so a missing extra costs nothing and says what to install.
         try:
@@ -135,21 +154,26 @@ def _cmd_audit(args: argparse.Namespace) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 1
     try:
-        peek = (
-            pd.read_parquet(path)
-            if path.suffix.lower() in {".parquet", ".pq"}
-            else pd.read_csv(
-                path, nrows=5, sep="\t" if path.suffix.lower() in {".tsv", ".tab"} else ","
-            )
+        # Read once, with the real reader, and build the map against the columns it produced.
+        # Peeking with a different reader was how a header block or a two-row header made
+        # --votes report columns that were not in the table the audit then ran on.
+        result = read_table(
+            path, encoding=args.encoding, sheet=args.sheet, header_rows=args.header_rows
         )
         if args.map:
             _reject_map_conflicts(args)
             cmap = load_column_map(args.map)
             cmap.notes.append(f"column map loaded from {args.map}")
         else:
-            cmap = _build_map(args, list(peek.columns))
-        data = load(path, columns=cmap, vote_pattern=args.vote_pattern)
-    except (SchemaError, ValueError, OSError) as exc:
+            cmap = _build_map(args, [str(c) for c in result.frame.columns])
+        data = ElectionData(
+            frame=result.frame,
+            columns=cmap if cmap is not None else autodetect(result.frame, args.vote_pattern),
+            source=str(path),
+            load_notes=result.notes,
+            suspected_total_rows=result.suspected_total_rows,
+        )
+    except (SchemaError, SpreadsheetError, ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
@@ -219,6 +243,23 @@ def build_parser() -> argparse.ArgumentParser:
     cols.add_argument("path")
     cols.add_argument("--vote-pattern", default=None, help="regex selecting contestant columns")
     cols.add_argument(
+        "--encoding",
+        default=None,
+        help="text encoding, overriding detection (e.g. cp1251). Detection is a guess and says so",
+    )
+    cols.add_argument(
+        "--sheet",
+        default=0,
+        help="worksheet name or index, for a spreadsheet (default the first)",
+    )
+    cols.add_argument(
+        "--header-rows",
+        type=int,
+        default=None,
+        metavar="N",
+        help="how many rows are the header, overriding detection (2 for a merged two-row header)",
+    )
+    cols.add_argument(
         "--write-map",
         default=None,
         metavar="PATH",
@@ -242,6 +283,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="load the column map from a YAML file (see columns --write-map)",
     )
     aud.add_argument("--vote-pattern", default=None, help="regex selecting contestant columns")
+    aud.add_argument(
+        "--encoding",
+        default=None,
+        help="text encoding, overriding detection (e.g. cp1251). Detection is a guess and says so",
+    )
+    aud.add_argument(
+        "--sheet",
+        default=0,
+        help="worksheet name or index, for a spreadsheet (default the first)",
+    )
+    aud.add_argument(
+        "--header-rows",
+        type=int,
+        default=None,
+        metavar="N",
+        help="how many rows are the header, overriding detection (2 for a merged two-row header)",
+    )
     aud.add_argument(
         "--thresholds",
         type=int,

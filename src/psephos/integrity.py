@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 from psephos._types import Finding, Flag
+from psephos.reading import find_total_rows
 from psephos.schema import ElectionData
 
 
@@ -175,8 +176,71 @@ def check_missing(data: ElectionData) -> Finding:
     )
 
 
+def check_total_rows(data: ElectionData) -> Finding:
+    """A row that is the sum of the others, left in the table as if it were a precinct.
+
+    This is the quietest large error in the whole tool. A national total passes every other
+    integrity check -- its counts are positive, its turnout is plausible, its parties sum -- and
+    it is one unit the size of the country. Every size-weighted statistic psephos computes is
+    then dominated by it, and the size strata put it alone in the top band.
+
+    The loader detects these and deliberately does not remove them, because dropping a row is a
+    decision about the data and not about the file. This check is what makes the decision
+    unavoidable.
+    """
+    rows = list(data.suspected_total_rows)
+    if not rows:
+        # Re-detect for a table built in memory or loaded without the reader, so this cannot be
+        # skipped by constructing ElectionData directly.
+        cols = [c for c in _numeric_columns(data) if c in data.frame.columns]
+        rows = find_total_rows(data.frame, cols) if cols else []
+    if not rows:
+        return Finding(
+            check="total_rows",
+            title="No row looks like an aggregate of the others.",
+            flag=Flag.OK,
+            statistic=0.0,
+            n_used=data.n,
+            details={"rows": []},
+        )
+
+    labels = []
+    for pos in rows:
+        text = [str(v) for v in data.frame.iloc[pos] if isinstance(v, str) and v.strip()]
+        labels.append(text[0] if text else f"row {pos}")
+    return Finding(
+        check="total_rows",
+        title=(
+            f"{len(rows)} row(s) look like an aggregate rather than a precinct "
+            f"({', '.join(repr(x) for x in labels[:3])}). A total row counted as a precinct is "
+            "one unit the size of the whole territory, and it distorts every size-weighted "
+            "statistic below. Remove it and rerun, or confirm it is a precinct."
+        ),
+        flag=Flag.STRONG,
+        statistic=float(len(rows)),
+        n_used=data.n,
+        confounds=[
+            "A genuinely very large polling station, in a dataset with few units, whose counts "
+            "happen to come close to the sum of the rest.",
+            "A region or district subtotal row, if the file mixes levels of aggregation, which "
+            "is the same problem under a different name.",
+        ],
+        details={"rows": rows, "labels": labels},
+    )
+
+
+def _numeric_columns(data: ElectionData) -> list[str]:
+    cols = list(data.columns.votes.values())
+    for role in ("registered", "ballots_cast", "invalid"):
+        col = getattr(data.columns, role)
+        if col:
+            cols.append(col)
+    return cols
+
+
 #: Every integrity check, in the order the report shows them.
 INTEGRITY_CHECKS = (
+    check_total_rows,
     check_duplicate_units,
     check_negative_counts,
     check_missing,

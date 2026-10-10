@@ -85,6 +85,9 @@ def audit(
         n_units=data.n,
         meta={
             "columns": data.columns.to_dict(),
+            # What the loader had to assume to read the file at all. Printed before any
+            # statistic, because every number below rests on it.
+            "load_notes": list(data.load_notes),
             "settings": {
                 "thresholds": list(thresholds),
                 "n_mc": n_mc,
