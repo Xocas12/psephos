@@ -14,6 +14,7 @@ from psephos._types import AuditReport, Finding, Flag
 from psephos.correction import apply_correction
 from psephos.integrity import run_integrity
 from psephos.methods import digits, integer_pct, turnout
+from psephos.progress import StderrProgress
 from psephos.schema import ElectionData, SchemaError
 from psephos.size import size_warning, stratify
 
@@ -50,11 +51,19 @@ def audit(
     n_mc: int = 500,
     seed: int | None = 0,
     by_size: bool = True,
+    progress: StderrProgress | None = None,
 ) -> AuditReport:
     """Audit one precinct table.
 
     Returns an :class:`~psephos._types.AuditReport`. Nothing here raises on statistical
     grounds: a check that cannot run says so and the audit continues.
+
+    ``progress``, when given, reports replicate counts for the Monte Carlo checks on stderr; see
+    :mod:`psephos.progress`. It changes nothing about the result.
+
+    The sweep draws its own null at each threshold rather than sharing one across the four,
+    even though the usable sets nest and sharing would be the largest saving available. Why not,
+    and what the audit costs, is in docs/performance.md.
 
     Before returning, the audit applies the multiple-testing correction of
     :mod:`psephos.correction`: every finding keeps its raw p-value and gains an adjusted one
@@ -75,6 +84,7 @@ def audit(
             },
         },
     )
+    prog = progress if progress is not None else StderrProgress(enabled=False)
     report.integrity = run_integrity(data)
 
     has_registered = bool(data.columns.registered)
@@ -113,6 +123,7 @@ def audit(
                     seed=seed,
                     slice_name=f"turnout, min_denominator={t}",
                     label="turnout",
+                    progress=prog.for_check(f"integer percentage, turnout, min_denominator={t}"),
                     # One hypothesis at four thresholds, counted once by the correction.
                     hypothesis="integer_pct:turnout",
                 )
@@ -132,6 +143,9 @@ def audit(
                     seed=seed,
                     slice_name=f"{winner} share, min_denominator={t}",
                     label=f"{winner} share",
+                    progress=prog.for_check(
+                        f"integer percentage, {winner} share, min_denominator={t}"
+                    ),
                     hypothesis=f"integer_pct:{winner} share",
                 )
             )
@@ -204,10 +218,12 @@ def audit(
                     seed=seed,
                     slice_name=f"turnout, {stratum.name}",
                     label="turnout",
+                    progress=prog.for_check(f"integer percentage, turnout, {stratum.name}"),
                     # Where the signal lives, not a new hypothesis: the same turnout claim
                     # re-tested within size bands, counted once by the correction.
                     hypothesis="integer_pct:turnout",
                 )
             )
 
+    prog.done()
     return apply_correction(report)
