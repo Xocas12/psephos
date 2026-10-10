@@ -157,6 +157,11 @@ signal lives in the small units.
   in [docs/why_no_benford.md](docs/why_no_benford.md).
 - Compare your election against others. **This is the biggest gap**: a statistic from one
   election means little without a baseline. See issue #4.
+- Run fast on a national dataset. One integer-percentage check on 95,000 precincts is 47
+  million binomial draws and tens of seconds, and an audit runs it eight or more times.
+  Ninety-five per cent of that is inside NumPy's binomial sampler, so the loop that looks like
+  the problem is not: the measurement, and what would actually make it fast, are in
+  [docs/performance.md](docs/performance.md). The audit reports progress while it waits.
 - Handle multi-round, multi-member or preferential systems properly yet. See issue #11.
 
 ## Honest status

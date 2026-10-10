@@ -16,6 +16,13 @@ the integer count under "no rounding, same underlying rates, same precinct sizes
 right null because it holds precinct size fixed. A null that ignored size would flag any
 dataset with many small precincts.
 
+The null is drawn one replicate at a time, which is the obvious thing to make faster and does
+not become faster: the cost is NumPy's per-unit binomial sampling, which happens in C either
+way, and drawing a block of replicates as one two-dimensional array measures slower because the
+array stops fitting in cache. The measurement, and a benchmark that reproduces it, are in
+docs/performance.md. The loop stays, and so does a progress callback, because minutes of silence
+is the thing that actually makes someone rerun this with fewer replicates.
+
 Reference: this is the estimator described by Kobak, Shpilkin and Pshenichnikov, "Integer
 percentages as electoral falsification fingerprints", Annals of Applied Statistics 10(1), 2016.
 The implementation here follows the description of the method; it has not been checked line by
@@ -23,6 +30,8 @@ line against the authors' own code, and issue #6 tracks that validation.
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
 
 import numpy as np
 
@@ -58,6 +67,7 @@ def integer_excess(
     seed: int | None = None,
     slice_name: str = "all",
     label: str = "value",
+    progress: Callable[[int, int], None] | None = None,
 ) -> Finding:
     """Test for excess mass at whole-number percentages.
 
@@ -73,6 +83,12 @@ def integer_excess(
         Monte Carlo replicates for the null. 500 is enough for a p-value near 0.01.
     seed : int, optional
         Makes the result reproducible.
+    progress : callable, optional
+        Called as ``progress(replicates_done, n_mc)`` while the null is drawn. A national
+        dataset takes tens of seconds for one check and minutes for an audit, and a silent wait
+        invites someone to kill the run and retry with fewer replicates. ``n_mc`` sets the Monte
+        Carlo p-value floor at ``1 / (n_mc + 1)``, which is what the strong flag is defined
+        against, so a run abandoned for being quiet comes back as a run that flags differently.
     """
     num = np.asarray(numerator, dtype=float)
     den = np.asarray(denominator, dtype=float)
@@ -108,9 +124,14 @@ def integer_excess(
     p = np.clip(k / d, 0.0, 1.0)
     d_int = np.rint(d).astype(np.int64)
     null = np.empty(n_mc, dtype=float)
+    # Reported every 10 replicates rather than every one: the callback rate-limits by time, but
+    # on a small dataset even the call overhead is worth not paying 500 times.
+    report_every = max(1, n_mc // 50)
     for i in range(n_mc):
         draw = rng.binomial(d_int, p)
         null[i] = _integer_count(100.0 * draw / d, tolerance)
+        if progress is not None and ((i + 1) % report_every == 0 or i + 1 == n_mc):
+            progress(i + 1, n_mc)
 
     mean = float(null.mean())
     sd = float(null.std(ddof=1))

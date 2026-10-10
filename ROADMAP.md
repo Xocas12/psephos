@@ -74,7 +74,14 @@ interpretable.
 
 ### backlog
 
-[#17](https://github.com/Xocas12/psephos/issues/17) performance, and
+[#17](https://github.com/Xocas12/psephos/issues/17) performance — measured, and the
+vectorisation it proposed does not help: 95 per cent of a check is inside NumPy's binomial
+sampler and the Python loop is 0.01 per cent, so there is nothing to win there. The numbers,
+and the three changes that would actually make it fast, are in
+[docs/performance.md](docs/performance.md). What landed instead is a benchmark and progress
+reporting. The issue stays open for the exact Poisson-binomial null, which would remove the
+Monte Carlo and the p-value floor the strong flag is defined against.
+
 [#18](https://github.com/Xocas12/psephos/issues/18) a documentation site.
 
 ## The bar for a new check
