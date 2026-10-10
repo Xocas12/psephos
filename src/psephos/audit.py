@@ -13,6 +13,7 @@ from dataclasses import replace
 from psephos._types import AuditReport, Finding, Flag
 from psephos.correction import apply_correction
 from psephos.integrity import run_integrity
+from psephos.interval import DEFAULT_N_BOOT
 from psephos.methods import digits, integer_pct, turnout
 from psephos.progress import StderrProgress
 from psephos.schema import ElectionData, SchemaError
@@ -51,12 +52,20 @@ def audit(
     n_mc: int = 500,
     seed: int | None = 0,
     by_size: bool = True,
+    n_boot: int = DEFAULT_N_BOOT,
+    ci_level: float = 0.95,
     progress: StderrProgress | None = None,
 ) -> AuditReport:
     """Audit one precinct table.
 
-    Returns an :class:`~psephos._types.AuditReport`. Nothing here raises on statistical
-    grounds: a check that cannot run says so and the audit continues.
+        Returns an :class:`~psephos._types.AuditReport`. Nothing here raises on statistical
+        grounds: a check that cannot run says so and the audit continues.
+
+    Every effect that has one carries a confidence interval from the stratified unit bootstrap
+    of :mod:`psephos.interval`, and the text report prints it before the p-value. The
+    stratification is by registered voters where the check has them, which is every percentage
+    check and, through ``sizes``, the digit and dependence checks too. ``n_boot=0`` turns the
+    intervals off.
 
     ``progress``, when given, reports replicate counts for the Monte Carlo checks on stderr; see
     :mod:`psephos.progress`. It changes nothing about the result.
@@ -81,6 +90,8 @@ def audit(
                 "n_mc": n_mc,
                 "seed": seed,
                 "by_size": by_size,
+                "n_boot": n_boot,
+                "ci_level": ci_level,
             },
         },
     )
@@ -123,6 +134,8 @@ def audit(
                     seed=seed,
                     slice_name=f"turnout, min_denominator={t}",
                     label="turnout",
+                    n_boot=n_boot,
+                    ci_level=ci_level,
                     progress=prog.for_check(f"integer percentage, turnout, min_denominator={t}"),
                     # One hypothesis at four thresholds, counted once by the correction.
                     hypothesis="integer_pct:turnout",
@@ -143,6 +156,8 @@ def audit(
                     seed=seed,
                     slice_name=f"{winner} share, min_denominator={t}",
                     label=f"{winner} share",
+                    n_boot=n_boot,
+                    ci_level=ci_level,
                     progress=prog.for_check(
                         f"integer percentage, {winner} share, min_denominator={t}"
                     ),
@@ -158,10 +173,26 @@ def audit(
                 check="turnout_share_dependence",
                 weights=valid,
                 winner=winner,
+                # Registered voters, so the resample holds the size mix fixed for this check
+                # too, not only for the percentage ones.
+                sizes=reg,
+                n_boot=n_boot,
+                ci_level=ci_level,
+                seed=seed,
                 hypothesis="turnout_share_dependence",
             )
         )
-        report.add(_safe(turnout.turnout_roundness, data.turnout(), check="turnout_distribution"))
+        report.add(
+            _safe(
+                turnout.turnout_roundness,
+                data.turnout(),
+                check="turnout_distribution",
+                sizes=reg,
+                n_boot=n_boot,
+                ci_level=ci_level,
+                seed=seed,
+            )
+        )
     else:
         report.add(
             Finding(
@@ -186,6 +217,10 @@ def audit(
                 check="last_digit",
                 slice_name=label,
                 label=label,
+                sizes=data.registered() if has_registered else None,
+                n_boot=n_boot,
+                ci_level=ci_level,
+                seed=seed,
                 hypothesis=f"last_digit:{label}",
             )
         )
@@ -196,6 +231,10 @@ def audit(
             check="last_two_digits",
             slice_name=winner,
             label=winner,
+            sizes=data.registered() if has_registered else None,
+            n_boot=n_boot,
+            ci_level=ci_level,
+            seed=seed,
             hypothesis=f"last_two_digits:{winner}",
         )
     )
@@ -218,6 +257,8 @@ def audit(
                     seed=seed,
                     slice_name=f"turnout, {stratum.name}",
                     label="turnout",
+                    n_boot=n_boot,
+                    ci_level=ci_level,
                     progress=prog.for_check(f"integer percentage, turnout, {stratum.name}"),
                     # Where the signal lives, not a new hypothesis: the same turnout claim
                     # re-tested within size bands, counted once by the correction.
@@ -226,4 +267,9 @@ def audit(
             )
 
     prog.done()
+    report.meta["intervals"] = {
+        "level": ci_level,
+        "n_boot": n_boot,
+        "n_findings_with_ci": sum(1 for f in report.findings if f.ci_low is not None),
+    }
     return apply_correction(report)

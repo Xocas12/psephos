@@ -39,6 +39,7 @@ from collections.abc import Callable
 import numpy as np
 
 from psephos._types import Finding, Flag
+from psephos.interval import DEFAULT_N_BOOT, bootstrap_ci
 from psephos.size import size_warning
 
 #: Below this many registered voters, whole-number percentages arise by arithmetic often enough
@@ -70,6 +71,8 @@ def integer_excess(
     seed: int | None = None,
     slice_name: str = "all",
     label: str = "value",
+    n_boot: int = DEFAULT_N_BOOT,
+    ci_level: float = 0.95,
     progress: Callable[[int, int], None] | None = None,
 ) -> Finding:
     """Test for excess mass at whole-number percentages.
@@ -86,6 +89,12 @@ def integer_excess(
         Monte Carlo replicates for the null. 500 is enough for a p-value near 0.01.
     seed : int, optional
         Makes the result reproducible.
+    n_boot : int
+        Bootstrap resamples for the interval on the effect, ``0`` to skip it. The resample is
+        over units within size bands and costs one recount each, not a second Monte Carlo; see
+        :mod:`psephos.interval`.
+    ci_level : float
+        Coverage of that interval.
     progress : callable, optional
         Called as ``progress(replicates_done, n_mc)`` while the null is drawn. A national
         dataset takes tens of seconds for one check and minutes for an audit, and a silent wait
@@ -127,12 +136,18 @@ def integer_excess(
     p = np.clip(k / d, 0.0, 1.0)
     d_int = np.rint(d).astype(np.int64)
     null = np.empty(n_mc, dtype=float)
+    # How often each unit individually landed on a whole number across the replicates, which is
+    # the per-unit null probability the bootstrap needs. Accumulating it here is one add per
+    # replicate; deriving it later would mean re-running the Monte Carlo for every resample.
+    unit_hits = np.zeros(n_used, dtype=np.int64)
     # Reported every 10 replicates rather than every one: the callback rate-limits by time, but
     # on a small dataset even the call overhead is worth not paying 500 times.
     report_every = max(1, n_mc // 50)
     for i in range(n_mc):
-        draw = rng.binomial(d_int, p)
-        null[i] = _integer_count(100.0 * draw / d, tolerance)
+        pct_draw = 100.0 * rng.binomial(d_int, p) / d
+        hit = np.abs(pct_draw - np.round(pct_draw)) <= tolerance
+        null[i] = float(hit.sum())
+        unit_hits += hit
         if progress is not None and ((i + 1) % report_every == 0 or i + 1 == n_mc):
             progress(i + 1, n_mc)
 
@@ -144,6 +159,25 @@ def integer_excess(
     mc_p = float((1 + np.sum(null >= observed)) / (n_mc + 1))
     # Excess as a share of the units tested, which is the number a reader can interpret.
     effect = excess / n_used
+
+    # The effect is a mean of per-unit contributions: unit i either landed on a whole number or
+    # did not, against the probability q_i that it would under the null. Writing it that way is
+    # what makes the bootstrap affordable — each resample is a mean over an index array rather
+    # than another Monte Carlo — and it is the same number, because
+    # sum_i(hit_i - q_i) / n = (observed - null_mean) / n.
+    hit = np.abs(pct - np.round(pct)) <= tolerance
+    contribution = hit.astype(float) - unit_hits / n_mc
+    ci_low, ci_high, ci_details = bootstrap_ci(
+        lambda idx: float(contribution[idx].mean()),
+        n_used,
+        estimate=float(effect),
+        sizes=d,
+        n_boot=n_boot,
+        level=ci_level,
+        # Derived from the check's own seed so the interval is reproducible with the finding,
+        # and offset so the resamples are not the null draws over again.
+        seed=None if seed is None else seed + 101,
+    )
 
     # The Monte Carlo p-value cannot go below 1 / (n_mc + 1), so a fixed cutoff such as 0.001
     # would be unreachable at the default n_mc and the strong flag would never fire. Compare
@@ -160,10 +194,19 @@ def integer_excess(
         flag = Flag.OK
 
     pct_excess = 100.0 * effect
+    interval = (
+        ""
+        if ci_low is None or ci_high is None
+        # The coverage is stated from ci_level, not hardcoded: --ci-level is plumbed through, and
+        # a title claiming 95 per cent under --ci-level 0.8 would contradict the report's own
+        # EFFECT INTERVALS section two sections below it.
+        else (f", {100 * ci_level:g} per cent interval [{100 * ci_low:+.2f}, {100 * ci_high:+.2f}]")
+    )
     title = (
         f"{observed} of {n_used} units land on a whole-number {label} percentage; "
         f"binomial noise predicts about {mean:.0f}. "
-        f"Excess {excess:+.0f} units ({pct_excess:+.2f} per cent of those tested)."
+        f"Excess {excess:+.0f} units ({pct_excess:+.2f} per cent of those tested"
+        f"{interval})."
     )
 
     return Finding(
@@ -173,6 +216,8 @@ def integer_excess(
         statistic=float(z),
         pvalue=mc_p,
         effect=float(effect),
+        ci_low=ci_low,
+        ci_high=ci_high,
         n_used=n_used,
         n_excluded=n_excluded,
         slice_name=slice_name,
@@ -192,6 +237,7 @@ def integer_excess(
                 f"denominator below {min_denominator}, missing, or numerator outside [0, denominator]"
             ),
             "size_note": size_warning(den, min_denominator),
+            **ci_details,
         },
     )
 
