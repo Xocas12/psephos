@@ -16,12 +16,15 @@ the integer count under "no rounding, same underlying rates, same precinct sizes
 right null because it holds precinct size fixed. A null that ignored size would flag any
 dataset with many small precincts.
 
-The null is drawn one replicate at a time, which is the obvious thing to make faster and does
-not become faster: the cost is NumPy's per-unit binomial sampling, which happens in C either
-way, and drawing a block of replicates as one two-dimensional array measures slower because the
-array stops fitting in cache. The measurement, and a benchmark that reproduces it, are in
-docs/performance.md. The loop stays, and so does a progress callback, because minutes of silence
-is the thing that actually makes someone rerun this with fewer replicates.
+The null is drawn one replicate at a time, and vectorising that loop is the obvious thing to try
+and does not pay. 95 per cent of a check is inside NumPy's per-unit binomial sampling, which
+happens in C either way, and the Python loop is 0.01 per cent, so there is almost nothing there
+to win. Drawing a block of replicates as one two-dimensional array was measured and its timing
+difference does not survive the run-to-run noise on the machine it was measured on; what it does
+cost is working memory, 96 MB against 1.5 MB at 64 replicates and about 760 MB for a national
+run. That is why the loop stays. Both measurements, and a benchmark that reproduces them, are in
+docs/performance.md. The progress callback stays for the other reason: minutes of silence is the
+thing that actually makes someone rerun this with fewer replicates.
 
 Reference: this is the estimator described by Kobak, Shpilkin and Pshenichnikov, "Integer
 percentages as electoral falsification fingerprints", Annals of Applied Statistics 10(1), 2016.

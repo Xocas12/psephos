@@ -242,12 +242,14 @@ def build_parser() -> argparse.ArgumentParser:
     aud.add_argument("--mc", type=int, default=500, help="Monte Carlo replicates (default 500)")
     aud.add_argument("--seed", type=int, default=0, help="random seed (default 0)")
     aud.add_argument("--no-strata", action="store_true", help="skip the per-size-band view")
-    aud.add_argument(
+    # Contradictory, so argparse refuses both rather than silently resolving to progress-on.
+    progress_group = aud.add_mutually_exclusive_group()
+    progress_group.add_argument(
         "--progress",
         action="store_true",
         help="report Monte Carlo progress on stderr even when stderr is not a terminal",
     )
-    aud.add_argument(
+    progress_group.add_argument(
         "--no-progress",
         action="store_true",
         help="never report progress (the default when stderr is not a terminal)",

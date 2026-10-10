@@ -82,7 +82,7 @@ and the three changes that would actually make it fast, are in
 reporting. The issue stays open for the exact Poisson-binomial null, which would remove the
 Monte Carlo and the p-value floor the strong flag is defined against.
 
-[#18](https://github.com/Xocas12/psephos/issues/18) a documentation site.
+Still in the backlog: [#18](https://github.com/Xocas12/psephos/issues/18) a documentation site.
 
 ## The bar for a new check
 

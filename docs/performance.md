@@ -88,7 +88,7 @@ same comparison put the loop ahead of every block size; this one puts 16 replica
 about a fifth. Neither difference survives the run-to-run noise, and a fifth is not what the
 issue was after.
 
-What is not within the noise is the memory. A block of 64 replicates holds 96 MB where the loop
+What is not within the noise is the memory, and that is the reason the loop stays. A block of 64 replicates holds 96 MB where the loop
 holds 1.5 MB, and a national dataset at `n_mc=500` would hold 760 MB as a single array, which
 is the kind of allocation that gets a process killed on a laptop. Paying 64 times the working
 memory for a difference that does not reproduce is a bad trade, so the loop stays.
