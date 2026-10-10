@@ -23,6 +23,7 @@ import numpy as np
 from scipy import stats
 
 from psephos._types import Finding, Flag
+from psephos.interval import DEFAULT_N_BOOT, bootstrap_ci, expected_tvd_under_uniform
 
 #: Counts below this have too few digits for a free last digit.
 MIN_COUNT_FOR_LAST_DIGIT = 100
@@ -42,8 +43,22 @@ def last_digit_uniformity(
     min_count: int = MIN_COUNT_FOR_LAST_DIGIT,
     slice_name: str = "all",
     label: str = "votes",
+    sizes: np.ndarray | None = None,
+    n_boot: int = DEFAULT_N_BOOT,
+    ci_level: float = 0.95,
+    seed: int | None = 0,
 ) -> Finding:
-    """Chi-square test that last digits are uniform on 0 to 9."""
+    """Chi-square test that last digits are uniform on 0 to 9.
+
+    The reported effect is the total variation distance from uniform, with a bootstrap interval
+    over units. ``sizes`` gives the precinct size per unit so that resample can be stratified;
+    without it the resample is unstratified and the finding says so.
+
+    A total variation distance cannot be negative, so its interval never contains zero, however
+    honest the data. ``details["null_expected_tvd"]`` is what this statistic takes on perfectly
+    uniform digits at this sample size, which is the comparison a reader actually needs, and it
+    is reported in the title beside the observed value.
+    """
     x = np.asarray(counts, dtype=float)
     usable = np.isfinite(x) & (x >= min_count)
     n_used = int(usable.sum())
@@ -73,6 +88,22 @@ def last_digit_uniformity(
     # which grows with sample size for a fixed departure.
     tvd = float(0.5 * np.abs(props - 0.1).sum())
 
+    # Resample units and recount the histogram. Cheap: an index into the digits array.
+    ci_low, ci_high, ci_details = bootstrap_ci(
+        lambda idx: float(
+            0.5 * np.abs(np.bincount(digits[idx], minlength=10) / idx.size - 0.1).sum()
+        ),
+        n_used,
+        estimate=tvd,
+        # A distance from uniform cannot be negative.
+        floor=0.0,
+        sizes=None if sizes is None else np.asarray(sizes, dtype=float)[usable],
+        n_boot=n_boot,
+        level=ci_level,
+        seed=None if seed is None else seed + 202,
+    )
+    expected_tvd = expected_tvd_under_uniform(n_used, 10)
+
     if pvalue <= 0.001 and tvd >= 0.02:
         flag = Flag.STRONG
     elif pvalue <= 0.05:
@@ -82,10 +113,13 @@ def last_digit_uniformity(
 
     over = int(np.argmax(observed))
     under = int(np.argmin(observed))
+    interval = "" if ci_low is None or ci_high is None else f" [{ci_low:.4f}, {ci_high:.4f}]"
     title = (
         f"Last digit of {label} across {n_used} units: most common {over} "
         f"({100 * props[over]:.1f} per cent), least common {under} "
-        f"({100 * props[under]:.1f} per cent); uniform would be 10.0 per cent."
+        f"({100 * props[under]:.1f} per cent); uniform would be 10.0 per cent. "
+        f"Distance from uniform {tvd:.4f}{interval}, against {expected_tvd:.4f} "
+        "for genuinely uniform digits at this sample size."
     )
 
     return Finding(
@@ -95,6 +129,8 @@ def last_digit_uniformity(
         statistic=chi2,
         pvalue=pvalue,
         effect=tvd,
+        ci_low=ci_low,
+        ci_high=ci_high,
         n_used=n_used,
         n_excluded=n_excluded,
         slice_name=slice_name,
@@ -106,6 +142,13 @@ def last_digit_uniformity(
             "min_count": min_count,
             "label": label,
             "excluded_because": f"count below {min_count} or missing",
+            "null_expected_tvd": expected_tvd,
+            "tvd_is_non_negative": (
+                "A total variation distance cannot be negative, so the interval never contains "
+                "zero and excluding zero means nothing. Compare the observed distance against "
+                "null_expected_tvd, which is what uniform digits produce at this sample size."
+            ),
+            **ci_details,
         },
     )
 
@@ -116,6 +159,10 @@ def last_two_digit_pairs(
     min_count: int = 1000,
     slice_name: str = "all",
     label: str = "votes",
+    sizes: np.ndarray | None = None,
+    n_boot: int = DEFAULT_N_BOOT,
+    ci_level: float = 0.95,
+    seed: int | None = 0,
 ) -> Finding:
     """Descriptive summary of the last two digits: repeated pairs against adjacent pairs.
 
@@ -150,6 +197,23 @@ def last_two_digit_pairs(
     repeated = observed[tens == ones].sum() / n_used
     adjacent = observed[np.abs(tens - ones) == 1].sum() / n_used
 
+    # The reported effect is the repeated-pair share above the uniform 0.10. Signed, so unlike
+    # the total variation distance in the check above it has no floor and its interval can
+    # straddle zero.
+    def _repeated_excess(idx: np.ndarray) -> float:
+        counts_i = np.bincount(vals[idx], minlength=100).astype(float)
+        return float(counts_i[tens == ones].sum() / idx.size - 0.10)
+
+    ci_low, ci_high, ci_details = bootstrap_ci(
+        _repeated_excess,
+        n_used,
+        estimate=float(repeated - 0.10),
+        sizes=None if sizes is None else np.asarray(sizes, dtype=float)[usable],
+        n_boot=n_boot,
+        level=ci_level,
+        seed=None if seed is None else seed + 505,
+    )
+
     flag = Flag.NOTABLE if pvalue <= 0.05 else Flag.OK
     title = (
         f"Last two digits of {label}: repeated pairs {100 * repeated:.1f} per cent "
@@ -163,6 +227,8 @@ def last_two_digit_pairs(
         statistic=chi2,
         pvalue=pvalue,
         effect=float(repeated - 0.10),
+        ci_low=ci_low,
+        ci_high=ci_high,
         n_used=n_used,
         n_excluded=n_excluded,
         slice_name=slice_name,
@@ -177,5 +243,6 @@ def last_two_digit_pairs(
             "label": label,
             "direction_unverified": True,
             "excluded_because": f"count below {min_count} or missing",
+            **ci_details,
         },
     )

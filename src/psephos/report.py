@@ -57,14 +57,20 @@ def _fmt_finding(f: Finding, indent: str = "  ") -> list[str]:
     lines = [f"{indent}[{MARK[f.flag]}] {f.check}  ({f.slice_name})"]
     lines.append(f"{indent}    {f.title}")
     bits = []
+    # The effect and its interval come first on purpose. With 95,000 precincts almost any
+    # departure from a null is significant, so the p-value is the least informative number on
+    # the line and leading with it is how a trivial effect gets read as an important one.
+    if f.effect is not None:
+        if f.ci_low is not None and f.ci_high is not None:
+            bits.append(f"effect={f.effect:.4g} [{f.ci_low:.4g}, {f.ci_high:.4g}]")
+        else:
+            bits.append(f"effect={f.effect:.4g}")
     if f.statistic is not None:
         bits.append(f"stat={f.statistic:.4g}")
     if f.pvalue is not None:
         bits.append(f"p={f.pvalue:.4g}")
     if f.adjusted_pvalue is not None:
         bits.append(f"adj_p={f.adjusted_pvalue:.4g}")
-    if f.effect is not None:
-        bits.append(f"effect={f.effect:.4g}")
     bits.append(f"n={f.n_used}")
     if f.n_excluded:
         bits.append(f"excluded={f.n_excluded}")
@@ -72,6 +78,43 @@ def _fmt_finding(f: Finding, indent: str = "  ") -> list[str]:
     for c in f.confounds:
         lines.append(f"{indent}    - could also be: {c}")
     return lines
+
+
+def _interval_lines(report: AuditReport) -> list[str]:
+    """What the bracketed numbers beside each effect are, and what they are not.
+
+    Not optional and with no flag to suppress it, like the sections it sits beside. An interval
+    is the most misreadable number in the output: it looks like a test, it is not one, and for a
+    statistic that cannot be negative it excludes zero on perfectly honest data.
+    """
+    ci = report.meta.get("intervals")
+    if not ci or not ci.get("n_findings_with_ci"):
+        return []
+    out = ["", "EFFECT INTERVALS"]
+    out.append(
+        f"  The bracketed range beside each effect is a {100 * ci['level']:.0f} per cent "
+        f"percentile bootstrap interval, from {ci['n_boot']} resamples of the precincts within "
+        "size bands. It holds the precinct-size mix at the one observed, because a whole-number "
+        "percentage is common by arithmetic in a small station and rare in a large one."
+    )
+    out.append(
+        "  It says how precisely the effect is measured, which is why it is printed first: the "
+        "same effect on 300 precincts and on 30,000 is not the same finding. Read the effect "
+        "and its width before the p-value."
+    )
+    out.append(
+        "  It is NOT a second test. The p-value beside it is the test, against a stated null. "
+        "An interval that excludes zero adds nothing to it, and an effect that cannot be "
+        "negative -- a distance from uniform, for instance -- has an interval that never "
+        "contains zero however honest the data; compare those against the expected value under "
+        "the null, which the finding carries."
+    )
+    out.append(
+        "  It covers uncertainty about which precincts were drawn, and nothing else. It does "
+        "not widen for the possibility that the null model is wrong, which is the larger "
+        "uncertainty in everything above."
+    )
+    return out
 
 
 def _multiple_testing_lines(report: AuditReport) -> list[str]:
@@ -161,6 +204,7 @@ def to_text(report: AuditReport, *, verbose: bool = False) -> str:
     for f in flagged:
         out.extend(_fmt_finding(f))
 
+    out.extend(_interval_lines(report))
     out.extend(_multiple_testing_lines(report))
 
     if verbose:

@@ -146,6 +146,13 @@ measured three ways. Reported as dependence, not as a vote count.
 **By precinct size.** The percentage checks again, within size bands, so you can see whether a
 signal lives in the small units.
 
+**With an interval on every effect.** Every check that reports one reports a confidence interval
+on it, printed before its p-value, from a bootstrap over precincts within size bands, so that
+the same number measured on 300 units and on 30,000 does not read the same way. The interval is
+not a second test, and for an effect that cannot be negative it never contains zero; the
+reasoning, and the bias that had to be corrected to keep it honest, are in
+[docs/effect_intervals.md](docs/effect_intervals.md).
+
 **From the file as published.** CSV, TSV, parquet and Excel. Windows-1251 and the other
 single-byte encodings, letterhead above the table, two-row headers with merged cells,
 semicolon-delimited files, counts written `1 234` or `1.234`, and a national total appended as if
@@ -164,6 +171,11 @@ every number that follows. [docs/messy_files.md](docs/messy_files.md) has the de
   in [docs/why_no_benford.md](docs/why_no_benford.md).
 - Compare your election against others. **This is the biggest gap**: a statistic from one
   election means little without a baseline. See issue #4.
+- Run fast on a national dataset. One integer-percentage check on 95,000 precincts is 47
+  million binomial draws and tens of seconds, and an audit runs it eight or more times.
+  Ninety-five per cent of that is inside NumPy's binomial sampler, so the loop that looks like
+  the problem is not: the measurement, and what would actually make it fast, are in
+  [docs/performance.md](docs/performance.md). The audit reports progress while it waits.
 - Remove anything from your file. A row that looks like a national total is flagged, loudly, and
   left where it is: dropping a row is a decision about the data rather than about the file. That
   one matters more than it sounds — a total row counted as a precinct is a single unit the size of
