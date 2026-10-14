@@ -108,6 +108,28 @@ or it is 1.234 — the thousands reading is taken, because that is right for a c
 separator. Plain integers are converted without a note, since nothing was repaired and a note
 per numeric column would bury the ones that mean something.
 
+The full stop needs one more step, because `1.234` is also a valid plain number. A column that
+parses plainly is not taken at its word when it contains full stops and every one of them sits
+in a value shaped like a grouped count under a million: one to three digits, a full stop,
+exactly three digits. That column gets the full-stop thousands reading and the same note.
+Without this step, a count column written in the continental convention parsed as decimals
+before any separator was tried, so every count from 1,000 to 999,999 came out a thousand times
+too small, with no note, while the same column grouped with commas was read correctly (issue
+#32). A million or more, `1.234.567`, never parsed plainly and was always read right. One
+value of any other shape (`12.5`, `1234.567`) means the full stop is a decimal point, and so
+does a leading `0.`, since nobody writes 512 as `0.512`.
+
+Only a full stop that was typed is read this way. A spreadsheet cell stored as a number reaches
+the loader as a number, and the `66.667` it prints as carries Python's decimal point, not a
+separator, so number cells are never read for one, and a single number cell with a fractional
+part keeps the whole column decimal.
+
+The cost sits on the other side, and it falls on text only: a value in a CSV or TSV, or a cell
+stored as text in a sheet. A share written that way to exactly three decimals, `66.667`, is read
+as 66,667, with the note telling you to check it if the column is a share, which is how `66,667`
+was always treated. Each column is judged on its own, so a `12.5` in another column of the same
+file does not change the reading.
+
 ## A total row appended to the precinct table
 
 The quietest large error in the tool. A national total passes every other integrity check — its
@@ -139,6 +161,10 @@ directly cannot skip it.
 - **Footnote markers** attached to counts (`1 234 *`), which currently fail the all-or-nothing
   conversion and so leave the column text, reported but unusable.
 - **`.xls`** older than the OOXML format, which needs `xlrd` rather than `openpyxl`.
+- **A fraction with a decimal comma and a leading zero** (`0,512`). Its comma groups three
+  digits, so the column takes the thousands reading, 512, with the note saying it could instead
+  be a decimal. The full-stop reading refuses a leading `0` group, since no grouped count starts
+  with one; the comma reading does not yet.
 
 Each would be a further issue. They are listed because a loader's limits should be written down
 rather than discovered.

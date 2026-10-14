@@ -14,10 +14,13 @@ import pytest
 from conftest_messy import (
     CLEAN_ROWS,
     NBSP,
+    SHARE_ROWS,
+    SHARES,
     write_cp1251_csv,
     write_everything_csv,
     write_header_block_csv,
     write_merged_header_xlsx,
+    write_numeric_shares_xlsx,
     write_separators_csv,
     write_total_row_csv,
 )
@@ -202,6 +205,28 @@ def test_counts_with_a_thousands_separator_become_numbers_and_say_so(tmp_path):
     assert "dropped from every numeric check" in note
 
 
+def test_a_file_with_full_stop_thousands_loads_every_count_at_full_size(tmp_path):
+    """Full-stop grouping and a decimal comma: Spain, Italy, Germany, the Netherlands.
+
+    Issue #32. This file loaded `registered` as [1.2, 1.5, 980, 2.1, 1.75, 1.32], and its notes
+    mentioned the encoding, the semicolon and the decimal comma in `turnout_pct` but not one of
+    the count columns. Every downstream statistic was computed on the wrong numbers, and the
+    integrity flags that fired pointed at polling-day registration rather than at the loader.
+    """
+    data = load(write_separators_csv(tmp_path / "s.csv", thousands=".", decimal=","))
+
+    assert list(data.frame["registered"]) == [float(v) for v in REGISTERED]
+    assert list(data.frame["ballots_cast"]) == [float(v) for v in CAST]
+    assert list(data.frame["turnout_pct"]) == [
+        float(f"{100 * c / r:.1f}") for r, c in zip(REGISTERED, CAST, strict=True)
+    ]
+    note = _note_text(data.load_notes)
+    for col in ("registered", "ballots_cast"):
+        assert f"'{col}' was text and is now numeric, read as full stop thousands" in note
+    assert "could instead be a decimal" in note
+    assert "'turnout_pct' was text and is now numeric, read as comma decimal mark" in note
+
+
 def test_a_decimal_comma_is_not_read_as_a_thousands_break():
     """The bug the grouping check exists for.
 
@@ -220,6 +245,7 @@ def test_a_decimal_comma_is_not_read_as_a_thousands_break():
     ("values", "expected"),
     [
         (["1 234", "5 678", "910"], [1234.0, 5678.0, 910.0]),
+        (["1.234", "5.678", "910"], [1234.0, 5678.0, 910.0]),
         (["1.234,5", "22.000,0"], [1234.5, 22000.0]),
         (["1,234.5", "22,000.0"], [1234.5, 22000.0]),
         (["12,34", "5,6"], [12.34, 5.6]),
@@ -244,6 +270,84 @@ def test_a_column_that_reads_both_ways_is_converted_and_the_ambiguity_is_stated(
     assert "check it if this column is a share" in note
     # The example must contain the separator; most values in a column of counts do not.
     assert "'1,234'" in note
+
+
+def test_a_column_grouped_with_full_stops_is_read_as_thousands_and_the_ambiguity_is_stated():
+    """The same column with full stops, which never failed the plain parse.
+
+    Issue #32. `1.234` is a valid plain number, so this column was accepted as decimals before
+    any separator style was tried: every count from 1,000 to 999,999 came out a thousand times
+    too small, and there was no note. The comma version above always got the thousands reading
+    and the note; the full stop must get both too.
+    """
+    frame = pd.DataFrame({"votes": ["1.234", "5.678", "910"]})
+    notes = coerce_numeric(frame)
+    assert list(frame["votes"]) == [1234.0, 5678.0, 910.0]
+    note = _note_text(notes)
+    assert "full stop thousands separator" in note
+    assert "could" in note and "instead be a decimal" in note
+    assert "check it if this column is a share" in note
+    assert "'1.234'" in note
+    # Unlike a column that fails every parse, this one would not have gone missing: it would
+    # have been read, wrongly. The note must not say otherwise.
+    assert "dropped from every numeric check" not in note
+    assert "would have raised no error" in note
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        ["66.7", "57.1", "120.5"],  # one digit after the full stop: a decimal point
+        ["1.234", "12.5"],  # one value that cannot be a grouped count settles the column
+        ["1234.567", "910"],  # four digits before it: no grouping would leave that
+        ["0.512", "0.433"],  # a fraction: nobody writes 512 as 0.512
+    ],
+)
+def test_a_full_stop_that_cannot_be_a_thousands_break_stays_a_decimal_point(values):
+    """The quiet side of the full-stop reading: plain decimals still load as before, unnoted."""
+    frame = pd.DataFrame({"x": values})
+    notes = coerce_numeric(frame)
+    assert list(frame["x"]) == [float(v) for v in values]
+    assert notes == []
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [
+        [66.667, 57.143, 72.125],  # every one prints with the shape of a grouped count
+        [66.667, "57.143", "72.125"],  # one number cell settles a column of typed ones
+    ],
+)
+def test_a_number_cell_is_not_read_for_a_thousands_separator(cells):
+    """A spreadsheet cell stored as a number arrives as a number, not as text.
+
+    Sheets are read with `dtype=object`, so a share stored as 66.667 reaches `coerce_numeric` as
+    the float 66.667, and its text is only Python printing it. That text has exactly the shape of
+    a count grouped with a full stop, and reading its full stop as a separator turned every share
+    into a number a thousand times too large, with a note saying the column had been text. A
+    number has no separator in it, so there is nothing to resolve.
+    """
+    frame = pd.DataFrame({"x": pd.Series(cells, dtype=object)})
+    notes = coerce_numeric(frame)
+    assert list(frame["x"]) == [float(v) for v in cells]
+    assert notes == []
+
+
+def test_a_whole_number_cell_leaves_the_typed_ones_to_be_read_as_thousands():
+    """An int prints with no full stop, so it says nothing either way and does not get in the way."""
+    frame = pd.DataFrame({"votes": pd.Series(["1.234", 5678, "910"], dtype=object)})
+    notes = coerce_numeric(frame)
+    assert list(frame["votes"]) == [1234.0, 5678.0, 910.0]
+    assert "full stop thousands separator" in _note_text(notes)
+
+
+def test_a_spreadsheet_share_stored_as_a_number_loads_unchanged_and_unnoted(tmp_path):
+    """The same thing through a real file: an .xlsx whose turnout cells are numbers."""
+    data = load(write_numeric_shares_xlsx(tmp_path / "shares.xlsx"))
+
+    assert list(data.frame["turnout_pct"]) == SHARES
+    assert list(data.frame["registered"]) == [float(r[1]) for r in SHARE_ROWS]
+    assert "turnout_pct" not in _note_text(data.load_notes)
 
 
 def test_plain_integers_are_converted_without_a_note():
