@@ -26,10 +26,11 @@ produces: eighteen findings at 5 per cent each give about 0.9 flags per audit wi
 wrong, and more checks give more. The rate per finding is not. A check calibrated at 5 per cent
 flags 5 per cent of its findings however many other checks run beside it, so a rate above 5
 per cent is a check firing too often on honest data, and no correction for multiplicity
-repairs that. One of the 28 was the last-digit cut. Of the 27 left, 23 are integer-percentage
-findings, from 9 of the 20 elections and 7 of them from one: the sweep re-asks one question of
-nested subsets, so an election that trips it trips it several times, and twenty elections
-measure that rate only loosely.
+repairs that. Allowing for the last-digit cut made a net one fewer: two `party_third` flags
+gone, one `party_incumbent` flag added. Of the 27 left, 23 are integer-percentage findings,
+from 9 of the 20 elections and 7 of them from one: the sweep re-asks one question of nested
+subsets, so an election that trips it trips it several times, and twenty elections measure
+that rate only loosely.
 
 So the correction is not defensive tidying. On this tool's own clean data, roughly three flags
 in forty are noise.
