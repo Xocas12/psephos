@@ -135,7 +135,9 @@ def _multiple_testing_lines(report: AuditReport) -> list[str]:
         f"  The audit tested {mt['n_hypotheses']} hypotheses in {mt['n_findings']} findings, "
         f"{mt['n_findings_with_pvalue']} of which carried a p-value. Re-tests of one "
         "hypothesis, such as the four size thresholds or the size strata, are counted once, "
-        "through the smallest raw p among them."
+        "through a Simes combination of their raw p-values rather than the smallest of them, "
+        "so re-testing a hypothesis on more slices does not give it more chances to look "
+        "significant."
     )
     out.append(
         f"  Corrected with the {mt['method']} false-discovery-rate procedure at q = {mt['q']}. "

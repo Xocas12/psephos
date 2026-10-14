@@ -2,21 +2,23 @@
 
 The correction is a report, not a verdict, so the tests pin the two decisions that carry the
 substance: re-tests of one hypothesis, such as the size-threshold sweep, are counted once
-through their smallest raw p, and each contestant's digit test stands on its own. They also
-pin that no flag ever moves. docs/multiple_testing.md carries the argument; these tests keep
-the code agreeing with it.
+through a Simes combination of their raw p-values, and each contestant's digit test stands on
+its own. They also pin that no flag ever moves. docs/multiple_testing.md carries the argument;
+these tests keep the code agreeing with it. That the combined p is a valid p-value on clean
+elections is measured in tests/test_correction_calibration.py.
 """
 
 from __future__ import annotations
 
 import json
 
+import numpy as np
 import pytest
 from conftest import with_rounded_turnout
 
 from psephos._types import AuditReport, Finding, Flag
 from psephos.audit import audit
-from psephos.correction import apply_correction, benjamini_hochberg, hypothesis_key
+from psephos.correction import apply_correction, benjamini_hochberg, hypothesis_key, simes
 from psephos.report import to_json, to_text
 from psephos.schema import ColumnMap, ElectionData
 
@@ -70,10 +72,37 @@ def test_bh_is_monotone_in_the_raw_p_and_never_below_it():
     assert [a for _, a in ranked] == sorted(a for _, a in ranked)
 
 
+def test_simes_hand_computed():
+    """min_i(K * p_(i) / i) over the sorted values, capped at one. One value is itself; a lone
+    small value among large ones pays the full factor K, as Bonferroni would; and re-tests that
+    agree pay nothing, which is why nested thresholds that select the same units do not cost
+    the hypothesis anything."""
+    assert simes([0.3]) == pytest.approx(0.3)
+    assert simes([0.01, 0.04, 0.03, 0.2]) == pytest.approx(0.04)
+    assert simes([0.001, 0.5, 0.6, 0.7]) == pytest.approx(4 * 0.001)
+    assert simes([0.02, 0.02, 0.02, 0.02]) == pytest.approx(0.02)
+    assert simes([0.9, 0.95]) == pytest.approx(0.95)
+    assert simes([0.8, 1.0, 1.0]) == pytest.approx(1.0)
+    with pytest.raises(ValueError):
+        simes([])
+
+
+def test_simes_is_never_below_the_smallest_p_nor_above_bonferroni():
+    """The two bounds that place it: the smallest raw p is what the correction used to enter
+    with and is not a valid p-value once there is more than one re-test; K times the smallest
+    is valid under any dependence and is what Simes reduces to when one value stands alone."""
+    rng = np.random.default_rng(26)
+    for k in (1, 2, 4, 8):
+        for _ in range(200):
+            ps = list(rng.uniform(size=k))
+            combined = simes(ps)
+            assert min(ps) <= combined <= min(1.0, k * min(ps))
+
+
 # ---------------------------------------------------------------- the family
 
 
-def test_a_hypothesis_gets_one_adjusted_value_from_its_smallest_raw_p():
+def test_a_hypothesis_enters_through_the_simes_combination_of_its_re_tests():
     rep = AuditReport(
         source="s",
         n_units=1,
@@ -84,10 +113,18 @@ def test_a_hypothesis_gets_one_adjusted_value_from_its_smallest_raw_p():
         ],
     )
     apply_correction(rep)
-    # Two hypotheses: the re-tests of h enter through 0.004, the untagged one through 0.4.
-    assert rep.findings[0].adjusted_pvalue == pytest.approx(2 * 0.004)
-    assert rep.findings[1].adjusted_pvalue == pytest.approx(2 * 0.004)
+    # Two hypotheses. The re-tests of h enter through simes([0.2, 0.004]) = 2 * 0.004 = 0.008,
+    # not through their smallest raw p of 0.004: the minimum of two looks is not a p-value. The
+    # untagged finding enters through its own 0.4, and BH at m = 2 doubles the smaller one.
+    assert rep.findings[0].adjusted_pvalue == pytest.approx(2 * 0.008)
+    assert rep.findings[1].adjusted_pvalue == pytest.approx(2 * 0.008)
     assert rep.findings[2].adjusted_pvalue == pytest.approx(0.4)
+    mt = rep.meta["multiple_testing"]
+    assert mt["combination"] == "Simes"
+    record = {h["hypothesis"]: h for h in mt["hypotheses"]}["h"]
+    assert record["p"] == pytest.approx(0.008), "the JSON must record the p that actually entered"
+    assert record["smallest_p"] == pytest.approx(0.004)
+    assert record["n_pvalues"] == 2
 
 
 def test_findings_without_a_pvalue_made_no_test_and_join_no_family():
@@ -180,11 +217,11 @@ def test_the_threshold_sweep_is_one_hypothesis_and_the_digit_tests_are_not(clean
 def test_every_p_value_keeps_an_adjusted_one_beside_it(clean_data):
     rep = audit(clean_data, n_mc=80, seed=0)
     # The adjusted value belongs to the HYPOTHESIS, not the individual finding: re-tests of
-    # one hypothesis enter the correction once, through the smallest p among them. So
-    # `f.pvalue <= f.adjusted_pvalue` is FALSE by design for any member that is not the
-    # smallest, because a sweep entry at min_denominator=1000 carries the adjusted value of a
-    # sweep that entered at min_denominator=100. The invariant that does hold is against the
-    # value that actually entered.
+    # one hypothesis enter the correction once, through the Simes combination of their raw
+    # p-values. So `f.pvalue <= f.adjusted_pvalue` is FALSE by design for a member whose own p
+    # is above the combined one, because a sweep entry at min_denominator=1000 carries the
+    # adjusted value of a sweep whose small p came from min_denominator=100. The invariant that
+    # does hold is against the value that actually entered.
     entered = {h["hypothesis"]: h["p"] for h in rep.meta["multiple_testing"]["hypotheses"]}
     for f in rep.findings:
         if f.pvalue is None:
@@ -225,12 +262,13 @@ def test_the_json_carries_the_correction_and_the_family_record(clean_data):
     payload = json.loads(to_json(audit(clean_data, by_size=False, n_mc=60)))
     mt = payload["meta"]["multiple_testing"]
     assert mt["method"] == "Benjamini-Hochberg"
+    assert mt["combination"] == "Simes"
     assert mt["q"] == 0.05
     assert mt["doc"] == "docs/multiple_testing.md"
     assert len(mt["hypotheses"]) == mt["n_hypotheses"]
     for h in mt["hypotheses"]:
-        assert 0.0 <= h["p"] <= h["adjusted_pvalue"] <= 1.0
-        assert h["n_findings"] >= 1
+        assert 0.0 <= h["smallest_p"] <= h["p"] <= h["adjusted_pvalue"] <= 1.0
+        assert 1 <= h["n_pvalues"] <= h["n_findings"]
     p_bearing = [f for f in payload["findings"] if f["pvalue"] is not None]
     assert p_bearing and all(f["adjusted_pvalue"] is not None for f in p_bearing)
     assert all("hypothesis" in f for f in payload["findings"])
