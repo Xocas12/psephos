@@ -19,7 +19,11 @@ not optional: ``Finding.__post_init__`` raises if a finding flagged notable or s
 none.
 
 The tests map onto the guide. The quiet test runs this check on ``clean_election()`` and demands
-``Flag.OK``. The loud test runs it on output of ``with_invented_last_digits``, a named generator
+``Flag.OK``, and the rate test runs it on 400 clean elections and holds the number flagged to a
+binomial bound. This statistic fails that bound, at about 7 per cent, because it compares counts
+cut at ``min_count`` with a flat uniform, the mistake issue #25 describes for the real
+last-digit check; the test records that as an expected failure rather than widening the bound.
+The loud test runs it on output of ``with_invented_last_digits``, a named generator
 in ``tests/conftest.py`` that rewrites a known fraction of counts with human-looking endings
 (heavy on 0 and 5), and demands the measured effect rise with that fraction. A third covers the
 underpowered path: with too few usable units the check returns ``Flag.UNDERPOWERED`` and no

@@ -130,6 +130,63 @@ def with_invented_last_digits(
     return out
 
 
+#: Seeds of the independent clean elections a false-positive-rate test runs a check on.
+CLEAN_RATE_SEEDS: range = range(1000, 1400)
+
+#: How many of those elections may flag. 30 of 400 is 7.5 per cent against a nominal 5. A
+#: check that flags at 5 per cent passes with probability 0.989, and one that flags at 10 per
+#: cent, twice nominal, fails with probability 0.948. Fewer elections cannot do both: at 40,
+#: the old last-digit test let a check at four times nominal through more often than not.
+CLEAN_RATE_MAX_FLAGGED = 30
+
+#: How many may come back STRONG. That flag needs p at or below 0.001 and an effect floor, so a
+#: calibrated check expects about 0.4 in 400 and three is already improbable (0.008).
+CLEAN_RATE_MAX_STRONG = 2
+
+#: The significance level every check flags NOTABLE at.
+CLEAN_RATE_ALPHA = 0.05
+
+
+def assert_clean_rate(findings, what: str) -> None:
+    """Assert that one check, on one column, flags clean data near its nominal rate.
+
+    ``findings`` is the check's finding on each election of :data:`CLEAN_RATE_SEEDS`. Only a
+    finding with a p-value is a test that could have come out either way, so every finding must
+    carry one: an underpowered election is not a pass, and a rate over fewer elections than the
+    bound was set for is not the rate this bound describes. Three counts are bounded: the
+    flagged findings (NOTABLE or STRONG), the p-values at or below alpha, which is the same
+    count unless a check adds an effect-size floor to its flag, and the STRONG findings.
+    """
+    from psephos._types import Flag
+
+    findings = list(findings)
+    assert len(findings) == len(CLEAN_RATE_SEEDS), (
+        f"{what}: {len(findings)} findings for {len(CLEAN_RATE_SEEDS)} clean elections"
+    )
+    untested = [f for f in findings if f.pvalue is None]
+    assert not untested, (
+        f"{what}: {len(untested)} of {len(findings)} clean elections gave no p-value, so this "
+        f"is not a rate over {len(findings)} tests; first: {untested[0].flag.value}, "
+        f"{untested[0].title}"
+    )
+    n = len(findings)
+    flagged = sum(f.flag in (Flag.NOTABLE, Flag.STRONG) for f in findings)
+    significant = sum(f.pvalue <= CLEAN_RATE_ALPHA for f in findings)
+    strong = sum(f.flag is Flag.STRONG for f in findings)
+    nominal = f"nominal is {CLEAN_RATE_ALPHA * n:.0f}, the bound {CLEAN_RATE_MAX_FLAGGED}"
+    assert flagged <= CLEAN_RATE_MAX_FLAGGED, (
+        f"{what}: {flagged} of {n} clean elections flagged ({flagged / n:.1%}); {nominal}"
+    )
+    assert significant <= CLEAN_RATE_MAX_FLAGGED, (
+        f"{what}: p <= {CLEAN_RATE_ALPHA} on {significant} of {n} clean elections "
+        f"({significant / n:.1%}); {nominal}"
+    )
+    assert strong <= CLEAN_RATE_MAX_STRONG, (
+        f"{what}: STRONG on {strong} of {n} clean elections; a calibrated check expects "
+        f"about {0.001 * n:.1f}, the bound is {CLEAN_RATE_MAX_STRONG}"
+    )
+
+
 @pytest.fixture
 def clean_df() -> pd.DataFrame:
     return clean_election()

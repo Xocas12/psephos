@@ -47,13 +47,33 @@ carries no confounds. Name the real confounds, not ceremonial ones. If the check
 percentage, one of them will be precinct size, and the confound should say how the check
 controls for it.
 
-### 3. A quiet test
+### 3. A quiet test, and a clean-data rate
 
 The check must not fire on `clean_election()` from `tests/conftest.py`. Assert the flag is `ok`
 and the p-value is above the significance level, not merely that nothing raised. This is the
 test that matters most and the one most often skipped: a check that fires on honest data
 launders suspicion, and it will not be merged however impressive the loud half looks. If the
 check is size-sensitive, the quiet test should use the same exclusions the real check uses.
+
+One clean election is not enough on its own. At alpha 0.05 a correct check flags about one
+clean election in twenty, so a single quiet seed shows only that this one was not among them.
+Measure the rate too: run the check on each of the 400 clean elections of `CLEAN_RATE_SEEDS`
+and pass the findings to `assert_clean_rate`, both in `tests/conftest.py`. It allows at most 30
+flags, which a check at the nominal 5 per cent passes with probability 0.989 and a check at
+twice nominal fails with probability 0.948, and every finding must carry a p-value. Do it once
+for every column the audit will run the check on, never pooled: pooling lets one bad column
+hide among good ones, which is how the last-digit check came to flag honest minor-party counts
+at more than twice its nominal rate with a green suite (issue #25). Pass `n_boot=0`; no flag
+depends on the interval and it is most of the cost. Once the check is registered in the audit,
+its rate tests belong in `tests/test_false_positive_rate.py`, whose coverage test fails until
+they are there.
+
+A failing rate test means the check is not calibrated. Fix the check; do not widen the bound or
+look for kinder seeds. If something has to merge before the fix, mark the test `xfail` with the
+issue that tracks the fix in its reason, as `tests/test_false_positive_rate.py` does for issue
+#25. Make it `strict=True` when the excess is well past the bound, so the marker fails the suite
+once it is no longer needed; a rate right at the bound can land either side of it under a
+different numpy, whose random streams are not stable across versions.
 
 ### 4. A loud test
 
@@ -93,7 +113,7 @@ attach a citation you have not verified describes the statistic you actually wro
 
 ## What will not be merged
 
-- A check without a quiet test.
+- A check without a quiet test, or without a clean-data rate test for every column it runs on.
 - A first-digit Benford test, or any test the scale of the data cannot support. The reasoning is
   recorded in issue #8 and in INTERPRETATION.md.
 - An estimator that converts a dependence into a count of anomalous votes, until its

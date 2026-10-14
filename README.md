@@ -185,8 +185,13 @@ every number that follows. [docs/messy_files.md](docs/messy_files.md) has the de
 ## Honest status
 
 Version 0.1. The methods are implemented from published descriptions and tested against
-synthetic elections where the answer is known by construction: the false-positive rate on clean data must sit near its nominal level,
-injected rounding must be found, and the measured effect must rise with the injected amount.
+synthetic elections where the answer is known by construction: injected rounding must be found,
+the measured effect must rise with the injected amount, and every check, on every column the
+audit runs it on, must flag no more than 30 of 400 clean elections. That is 7.5 per cent against
+a nominal 5, a bound a check at twice the nominal rate fails with probability 0.95. Not every
+check meets it yet: the last-digit check on the two minor-party columns, and the last-two-digit
+check where the winner's counts are dense at its cut of 1000, flag clean data too often (issue
+#25), and the suite records them as expected failures until that is fixed.
 
 **They have not yet been validated against a real election with a known, published result.**
 That is issue #6 and it is the most important open item in the repository. Until it is done,
@@ -200,8 +205,9 @@ and `src/psephos/methods/_template.py` is a working example that clears it.
 Issues are organised by milestone. Good places to start are labelled `good first issue`.
 
 If you are adding a check, it needs: a null you can state in one sentence, a list of confounds,
-a synthetic test showing it stays quiet on clean data, and a synthetic test showing it finds the
-thing it claims to find. A check without the quiet test will not be merged.
+a synthetic test showing it stays quiet on clean data, at a rate near its nominal level over 400
+clean elections and on every column it runs on, and a synthetic test showing it finds the thing
+it claims to find. A check without the quiet test will not be merged.
 
 ## Licence
 
