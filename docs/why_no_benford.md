@@ -22,7 +22,7 @@ Precinct vote counts inside a single election meet none of that.
 
 - **The span is not there.** Precinct sizes are an administrative choice, and within one
   election they sit inside a narrow band: in the honest election generated below, the counts
-  run from 80 to 2340 ballots and the middle half of them lies within a factor of 2.3.
+  run from 89 to 2155 ballots and the middle half of them lies within a factor of 2.2.
   The law is not about the extremes; it is about the shape across the span, and there is
   almost no span to have a shape across.
 - **There are built-in bounds.** Jurisdictions split precincts that grow too large and
@@ -34,7 +34,7 @@ Precinct vote counts inside a single election meet none of that.
 
 Because an election has thousands of precincts, a chi-square test has enormous power against
 that size-distribution signal. The honest-data rejection does not come back at p = 0.03; it
-comes back at p = 4.23e-79. That is the worst possible output shape for a forensic tool: a
+comes back at p = 7.20e-142. That is the worst possible output shape for a forensic tool: a
 number that reads as proof, produced by honest data.
 
 ## The demonstration
@@ -42,7 +42,10 @@ number that reads as proof, produced by honest data.
 Run this from the repository root. `clean_election()` is the generator from
 `tests/conftest.py`: lognormal precinct sizes, smoothly varying turnout and support, and
 every count a binomial draw. No rounding, no stuffing, no invented digit. It is the data
-every check in psephos is required to stay quiet on, and every check in psephos does.
+every check in psephos is required to stay quiet on. That is a requirement, not a promise of
+silence: over twenty seeds a full audit of it still flags some findings, and
+`docs/multiple_testing.md` gives the measured rate. What sets the first-digit test apart is
+that it rejects all hundred of the honest elections in the second run below.
 
 ```console
 $ uv run python - <<'PY'
@@ -82,25 +85,26 @@ PY
 ```
 
 ```text
-4000 precincts, ballots cast from 80 to 2340
-middle half: 324 to 748, a factor of 2.3
-digit 1: observed  792 (0.198)  benford  1204.1 (0.301)
-digit 2: observed  572 (0.143)  benford   704.4 (0.176)
-digit 3: observed  617 (0.154)  benford   499.8 (0.125)
-digit 4: observed  545 (0.136)  benford   387.6 (0.097)
-digit 5: observed  478 (0.119)  benford   316.7 (0.079)
-digit 6: observed  347 (0.087)  benford   267.8 (0.067)
-digit 7: observed  294 (0.073)  benford   232.0 (0.058)
-digit 8: observed  213 (0.053)  benford   204.6 (0.051)
-digit 9: observed  142 (0.035)  benford   183.0 (0.046)
+4000 precincts, ballots cast from 89 to 2155
+middle half: 338 to 730, a factor of 2.2
+digit 1: observed  615 (0.154)  benford  1204.1 (0.301)
+digit 2: observed  578 (0.144)  benford   704.4 (0.176)
+digit 3: observed  616 (0.154)  benford   499.8 (0.125)
+digit 4: observed  623 (0.156)  benford   387.6 (0.097)
+digit 5: observed  521 (0.130)  benford   316.7 (0.079)
+digit 6: observed  375 (0.094)  benford   267.8 (0.067)
+digit 7: observed  300 (0.075)  benford   232.0 (0.058)
+digit 8: observed  219 (0.055)  benford   204.6 (0.051)
+digit 9: observed  153 (0.038)  benford   183.0 (0.046)
 chi2=681.4 df=8 p=7.20e-142 tvd=0.1864
 ```
 
 Benford predicts 30.1 per cent of counts to start with 1; 15.4 per cent of these honest
-counts do. Chi-square 389.0 on 8 degrees of freedom, p = 4.23e-79, total variation distance
-from Benford 0.146. In the reporting conventions of the README's sample output that is
-`stat=681.4  p=7.20e-142  effect=0.1864`: a STRONG flag, on data that contains no anomaly of
-any kind.
+counts do. Chi-square 681.4 on 8 degrees of freedom, p = 7.20e-142, total variation distance
+from Benford 0.186. In the line format of a psephos report, without the interval and the
+adjusted p that only a full audit computes, that is
+`effect=0.1864  stat=681.4  p=7.204e-142  n=4000`: a STRONG flag, on data that contains no
+anomaly of any kind.
 
 One election could be luck. Run the same test over a hundred independent honest elections
 from the same generator:
@@ -153,7 +157,7 @@ PY
 ```
 
 ```text
-flag=ok p=0.749 effect=0.0171
+flag=ok p=0.749 effect=0.0139
 ```
 
 Same data, same family, same chi-square construction, opposite verdict. The difference is not
@@ -219,7 +223,7 @@ pass that requirement, so it is excluded before implementation is ever discussed
 
 Nothing here argues against the second-digit test (2BL; Mebane 2008), which is the form of
 Benford's law actually used in the election forensics literature. Its expected distribution
-is far flatter than the first-digit law's, 11.4 per cent for digit 0 down to 8.4 per cent for
+is far flatter than the first-digit law's, 12.0 per cent for digit 0 down to 8.5 per cent for
 digit 9 where the first-digit law runs from 30.1 to 4.6, and it is applied to counts that sit
 inside one order of magnitude, so the argument above does not decide that case and this
 document must not be cited as though it did. If the second-digit test is wanted in psephos,
