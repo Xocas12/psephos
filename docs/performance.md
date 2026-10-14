@@ -110,10 +110,12 @@ the loop again.
 - **Share one null across the threshold sweep.** The usable sets nest, so one draw at the most
   permissive threshold could be re-counted at the stricter ones, for something close to the
   sweep's full cost. The sweep exists to show whether a signal survives a stricter threshold,
-  and the multiple-testing correction already collapses the four thresholds to one hypothesis
-  through the smallest raw p among them. Drawing those four p-values from shared replicates
-  correlates them, and a minimum over correlated p-values is not the selection a minimum over
-  independent ones is. Tractable, and it needs stating before it is relied on.
+  and the multiple-testing correction already collapses the four thresholds and the size bands
+  to one hypothesis, through a Simes combination of their p-values
+  (`docs/multiple_testing.md`). Shared replicates would make those p-values more positively
+  dependent, which Simes tolerates at some cost in power, and would also make an exact joint
+  min-p over the slices possible, which would recover that power. Tractable, and it changes
+  what each slice reports.
 - **A faster exact binomial sampler.** At roughly 100 ns a draw this is where the time is. Any
   sampler that is correct gives a valid null, but a different one gives different replicates,
   so the same seed would stop reproducing a published number.
