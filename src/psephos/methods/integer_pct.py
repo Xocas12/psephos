@@ -2,8 +2,7 @@
 
 If someone writes down a target rather than a count, the target tends to be a round number.
 So percentages computed from reported figures pile up on whole numbers more often than counting
-noise allows. This is the strongest single check psephos implements, and it is also the one
-most easily faked by small precincts, which is why the size threshold is not optional.
+noise allows. This is the strongest single check psephos implements.
 
 Method
 ------
@@ -15,6 +14,27 @@ The null is that each unit's count is binomial noise around its own observed rat
 the integer count under "no rounding, same underlying rates, same precinct sizes", which is the
 right null because it holds precinct size fixed. A null that ignored size would flag any
 dataset with many small precincts.
+
+This one does not, and small precincts cannot fake a signal under it. The arithmetic that puts a
+small or round-sized precinct on a whole number is in the null as well as in the data: a
+100-voter unit lands on one with probability 1 in both, a 200-voter unit with probability one
+half in both. Averaged over turnout spread evenly from 40 to 80 per cent, an honest unit of any
+size from 20 to 499 adds between -0.02 and +0.01 of a unit to the expected excess. Where the
+plug-in null does misfit small units, at turnout close to 100 per cent as in some institutional
+precincts, it predicts more whole numbers than honest data produce (up to 0.14 of a unit each,
+averaged over turnout from 90 to 100 per cent), so those units pull the statistic down. Small
+precincts can hide rounding; they do not manufacture it.
+
+What the size threshold controls is power. Below about 250 voters the count nearest a
+whole-number percentage is usually not on one, so rounding there barely moves the count: at 55
+per cent turnout, rounding a 100-249 voter precinct raises its chance of landing on a whole
+number from about 0.11 to 0.18, and a 20-99 voter one not at all, against 0.10 to 1.0 at 1,000
+voters and above. Including those units mostly dilutes the test.
+
+The threshold sweep therefore says where in the size range an excess sits, not whether it is
+rounding. An excess that fades as the threshold rises is an excess in the smaller precincts the
+higher thresholds drop, which is where rounding is often alleged; it is still an excess over a
+null that already holds their size fixed.
 
 The null is drawn one replicate at a time, and vectorising that loop is the obvious thing to try
 and does not pay. 95 per cent of a check is inside NumPy's per-unit binomial sampling, which
@@ -42,16 +62,25 @@ from psephos._types import Finding, Flag
 from psephos.interval import DEFAULT_N_BOOT, bootstrap_ci
 from psephos.size import size_warning
 
-#: Below this many registered voters, whole-number percentages arise by arithmetic often enough
-#: that the test cannot separate them from rounding. Units below it are excluded and counted.
+#: Below this many registered voters, rounding barely changes how often a unit lands on a
+#: whole-number percentage, so those units add noise and almost no power (see the module
+#: docstring). It is a power threshold, not a guard against false alarms: the null already holds
+#: each unit's size fixed. Units below it are excluded and counted.
 DEFAULT_MIN_DENOMINATOR = 250
 
+#: Innocent explanations printed beside a flagged finding. Each one has to be a mechanism that
+#: puts the reported count itself on a whole-number percentage, because only that can raise the
+#: observed count above a null that holds every unit's size fixed. Precinct size cannot: the
+#: arithmetic that puts a small or round-sized precinct on a whole number is in the null too.
+#: tests/test_small_precincts.py simulates each mechanism and checks it raises the count.
 CONFOUNDS = [
-    "Small precincts, where whole-number percentages are common by arithmetic alone. The "
-    "min_denominator threshold controls this and the result should be checked across a range "
-    "of thresholds before it is believed.",
-    "Institutional precincts such as hospitals, barracks, ships and prisons, which are small "
-    "and whose electorates are often round numbers to begin with.",
+    "Counts that were estimated or rounded rather than tallied, for example a figure reported "
+    "to the nearest ten. Where the base is also a round number, such as 500 or 1,000, every "
+    "such count is a whole-number percentage. A rounded registered count on its own does not "
+    "do this, since the null takes the base as given.",
+    "A count back-calculated from a published percentage that had already been rounded, by the "
+    "commission, by whoever compiled the file, or by an earlier processing step, so that it "
+    "lands on a whole number by construction.",
     "A reported figure that was genuinely computed as a percentage of a target, for example a "
     "quota, without any misreporting of the count.",
 ]
@@ -251,9 +280,13 @@ def integer_excess_by_threshold(
 ) -> list[Finding]:
     """Run the test at several size thresholds.
 
-    A real rounding signal survives raising the threshold; an artefact of small precincts dies.
-    Reporting the sweep rather than one threshold is what stops the parameter being tuned until
-    the answer is interesting, so the audit runs this rather than a single call.
+    The sweep locates an excess by precinct size. It is not what separates rounding from
+    arithmetic; the null at every threshold already does that, by holding each unit's size
+    fixed. An excess that fades as the threshold rises sits in the smaller precincts the higher
+    thresholds drop, and it is still an excess there; one that holds at the strictest threshold
+    sits in the large ones. Reporting the sweep rather than one threshold is what stops the
+    parameter being tuned until the answer is interesting, so the audit runs this rather than a
+    single call.
     """
     out = []
     for t in thresholds:

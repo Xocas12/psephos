@@ -24,8 +24,8 @@ FLAGGED FINDINGS (2 of 19)
       614 of 3820 units land on a whole-number turnout percentage; binomial noise
       predicts about 189. Excess +425 units (+11.13 per cent of those tested).
       stat=28.4  p=0.001996  effect=0.1113  n=3820  excluded=180
-      - could also be: Small precincts, where whole-number percentages are common by
-        arithmetic alone...
+      - could also be: Counts that were estimated or rounded rather than tallied, for
+        example a figure reported to the nearest ten...
 ```
 
 ## Why this exists
@@ -40,9 +40,11 @@ psephos is built so that is hard to do:
 - **Nothing gets flagged without an innocent explanation printed next to it.** This is enforced
   in code. Constructing a flagged finding with no confounds raises an exception.
 - **Precinct size is handled everywhere.** A station with 100 registered voters lands on a whole
-  percentage by arithmetic. Percentage checks exclude small units, say how many they excluded,
-  and run across a sweep of thresholds, because a signal that appears only at the most permissive
-  threshold is a signal about small precincts.
+  percentage by arithmetic, so the integer-percentage null holds every station's size fixed and
+  expects exactly that. Percentage checks also exclude the smallest units, where rounding is
+  barely detectable, say how many they excluded, and run across a sweep of thresholds that shows
+  where in the size range an excess sits. An excess confined to smaller precincts is still an
+  excess.
 - **There is no fraud score.** No single number, no traffic light, nothing a headline can quote.
   Findings carry a flag meaning "worth explaining", not "guilty".
 - **The interpretation section cannot be suppressed.** It is in the text report and in the JSON.

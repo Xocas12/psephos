@@ -34,9 +34,11 @@ Four things that will make you wrong if you skip them.
    not fit. The null is always a simplification of a real electoral process, and the process
    is what you have to argue about.
 
-2. Precinct size drives most false alarms. Small precincts produce whole-number percentages by
-   arithmetic. psephos excludes them and shows the result across several thresholds; a signal
-   that only appears at the most permissive threshold is a signal about small precincts.
+2. Precinct size drives most false alarms in this field. Small precincts produce whole-number
+   percentages by arithmetic, so psephos tests each precinct against noise at its own size and
+   that arithmetic is expected rather than flagged. The sweep across size thresholds shows
+   where an excess sits, not whether it is rounding: one that fades as the threshold rises is
+   an excess in the smaller precincts, and it needs explaining like any other.
 
 3. Comparison is what makes a number mean anything. A statistic from one election, with no
    comparison to other elections in the same country, to previous elections, or to countries
