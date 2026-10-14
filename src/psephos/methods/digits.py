@@ -23,7 +23,12 @@ import numpy as np
 from scipy import stats
 
 from psephos._types import Finding, Flag
-from psephos.interval import DEFAULT_N_BOOT, bootstrap_ci, expected_tvd_under_uniform
+from psephos.interval import (
+    DEFAULT_N_BOOT,
+    bootstrap_ci,
+    distance_interval,
+    expected_tvd_under_uniform,
+)
 
 #: Counts below this have too few digits for a free last digit.
 MIN_COUNT_FOR_LAST_DIGIT = 100
@@ -50,14 +55,16 @@ def last_digit_uniformity(
 ) -> Finding:
     """Chi-square test that last digits are uniform on 0 to 9.
 
-    The reported effect is the total variation distance from uniform, with a bootstrap interval
-    over units. ``sizes`` gives the precinct size per unit so that resample can be stratified;
-    without it the resample is unstratified and the finding says so.
+    The reported effect is the total variation distance from uniform less what counting noise
+    adds to it, with an interval for the distance itself from
+    :func:`psephos.interval.distance_interval`. ``sizes`` gives the precinct size per unit so
+    that the interval's resample can be stratified; without it the resample is unstratified and
+    the finding says so.
 
-    A total variation distance cannot be negative, so its interval never contains zero, however
-    honest the data. ``details["null_expected_tvd"]`` is what this statistic takes on perfectly
-    uniform digits at this sample size, which is the comparison a reader actually needs, and it
-    is reported in the title beside the observed value.
+    The distance as counted is in ``details["tvd_as_counted"]``. On perfectly uniform digits it
+    is not zero but about ``details["null_expected_tvd"]``, and the title prints the two side by
+    side. The interval is for the distance, not for that counted value, so on digits consistent
+    with uniform it reaches zero.
     """
     x = np.asarray(counts, dtype=float)
     usable = np.isfinite(x) & (x >= min_count)
@@ -85,26 +92,23 @@ def last_digit_uniformity(
 
     props = observed / n_used
     # Total variation distance from uniform: an interpretable effect size, unlike chi-square,
-    # which grows with sample size for a fixed departure.
-    tvd = float(0.5 * np.abs(props - 0.1).sum())
-
-    # Resample units and recount the histogram. Cheap: an index into the digits array.
-    ci_low, ci_high, ci_details = bootstrap_ci(
-        lambda idx: float(
-            0.5 * np.abs(np.bincount(digits[idx], minlength=10) / idx.size - 0.1).sum()
-        ),
-        n_used,
-        estimate=tvd,
-        # A distance from uniform cannot be negative.
-        floor=0.0,
+    # which grows with sample size for a fixed departure. Counted, it is biased upward by the
+    # noise, by 0.038 at a thousand units on perfectly uniform digits, so the effect is the
+    # distance less that bias and the interval is for the distance itself (issue #29).
+    effect, ci_low, ci_high, ci_details = distance_interval(
+        digits,
+        np.full(10, 0.1),
         sizes=None if sizes is None else np.asarray(sizes, dtype=float)[usable],
         n_boot=n_boot,
         level=ci_level,
         seed=None if seed is None else seed + 202,
     )
+    tvd = float(ci_details["tvd_as_counted"])
     expected_tvd = expected_tvd_under_uniform(n_used, 10)
 
-    if pvalue <= 0.001 and tvd >= 0.02:
+    # The size gate reads the effect, not the counted distance. On uniform digits at 4,000 units
+    # the counted distance reached 0.02 in 373 of 1,000 draws and the effect in 101.
+    if pvalue <= 0.001 and effect >= 0.02:
         flag = Flag.STRONG
     elif pvalue <= 0.05:
         flag = Flag.NOTABLE
@@ -113,13 +117,18 @@ def last_digit_uniformity(
 
     over = int(np.argmax(observed))
     under = int(np.argmin(observed))
-    interval = "" if ci_low is None or ci_high is None else f" [{ci_low:.4f}, {ci_high:.4f}]"
+    interval = (
+        ""
+        if ci_low is None or ci_high is None
+        else f" ({100 * ci_level:g} per cent interval [{ci_low:.4f}, {ci_high:.4f}])"
+    )
     title = (
         f"Last digit of {label} across {n_used} units: most common {over} "
         f"({100 * props[over]:.1f} per cent), least common {under} "
         f"({100 * props[under]:.1f} per cent); uniform would be 10.0 per cent. "
-        f"Distance from uniform {tvd:.4f}{interval}, against {expected_tvd:.4f} "
-        "for genuinely uniform digits at this sample size."
+        f"Distance from uniform, less what counting noise adds: {effect:.4f}{interval}. "
+        f"As counted it is {tvd:.4f}, against about {expected_tvd:.4f} for genuinely uniform "
+        "digits at this sample size."
     )
 
     return Finding(
@@ -128,7 +137,7 @@ def last_digit_uniformity(
         flag=flag,
         statistic=chi2,
         pvalue=pvalue,
-        effect=tvd,
+        effect=effect,
         ci_low=ci_low,
         ci_high=ci_high,
         n_used=n_used,
@@ -143,10 +152,12 @@ def last_digit_uniformity(
             "label": label,
             "excluded_because": f"count below {min_count} or missing",
             "null_expected_tvd": expected_tvd,
-            "tvd_is_non_negative": (
-                "A total variation distance cannot be negative, so the interval never contains "
-                "zero and excluding zero means nothing. Compare the observed distance against "
-                "null_expected_tvd, which is what uniform digits produce at this sample size."
+            "reading_the_distance": (
+                "The effect is the distance from uniform less tvd_noise_bias, what counting "
+                "noise adds on average, and the interval is for the distance itself, so it "
+                "reaches zero when the digits are consistent with uniform. tvd_as_counted is "
+                "the distance before that correction; null_expected_tvd is what perfectly "
+                "uniform digits count at this sample size, for comparison with it."
             ),
             **ci_details,
         },

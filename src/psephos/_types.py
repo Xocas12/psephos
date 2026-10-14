@@ -74,8 +74,10 @@ class Finding:
         the check has no interval or there were too few units to compute one.
 
         It is an interval on the precision of the effect, not a second test. An interval that
-        excludes zero adds nothing to the p-value beside it, and for an effect that cannot be
-        negative it never contains zero however honest the data.
+        excludes zero adds nothing to the p-value beside it. The last-digit distance, which
+        counting noise inflates, is reported less that noise, with an interval built to cover the
+        distance itself, so it reaches zero on digits consistent with uniform
+        (:func:`psephos.interval.distance_interval`).
     n_used : int
         Units that entered the statistic.
     n_excluded : int

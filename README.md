@@ -149,9 +149,10 @@ signal lives in the small units.
 **With an interval on every effect.** Every check that reports one reports a confidence interval
 on it, printed before its p-value, from a bootstrap over precincts within size bands, so that
 the same number measured on 300 units and on 30,000 does not read the same way. The interval is
-not a second test, and for an effect that cannot be negative it never contains zero; the
-reasoning, and the bias that had to be corrected to keep it honest, are in
-[docs/effect_intervals.md](docs/effect_intervals.md).
+not a second test. The last-digit distance from uniform is inflated by counting noise, so it is
+printed with that noise taken off and with an interval built to cover the distance itself, which
+reaches zero when the digits are consistent with uniform. The reasoning, and the coverage
+measured against known distances, are in [docs/effect_intervals.md](docs/effect_intervals.md).
 
 **From the file as published.** CSV, TSV, parquet and Excel. Windows-1251 and the other
 single-byte encodings, letterhead above the table, two-row headers with merged cells,

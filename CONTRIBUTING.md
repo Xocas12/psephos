@@ -70,9 +70,13 @@ If the check reports an `effect`, it reports `ci_low` and `ci_high` with it, fro
 `psephos.interval.bootstrap_ci`, resampling units and stratified by precinct size where the
 check has the sizes. `Finding.__post_init__` refuses an interval that does not contain its own
 effect, which is a real failure mode and not a formality: the plain percentile bootstrap does
-exactly that on any statistic with a floor, such as a distance. If your effect cannot go
-negative, pass `floor=` and report the value the statistic takes under the null beside it,
-because its interval will never contain zero and a reader will otherwise read that as a result.
+exactly that on any statistic with a floor, such as a distance. Containing the estimate is not
+enough either. An effect that cannot go negative is usually inflated by noise, and an interval
+centred on the inflated estimate covers what the estimate averages at that sample size, not the
+quantity it estimates: the last-digit distance's first interval covered a true distance of
+zero in 1 draw in 100 at 1,000 units (issue #29). For such an effect, measure coverage against a
+known true value before shipping, and report the effect with its bias removed;
+`psephos.interval.distance_interval` is what the last-digit distance uses.
 [docs/effect_intervals.md](docs/effect_intervals.md) has the reasoning and the measurement.
 
 ### 6. An underpowered path

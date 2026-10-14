@@ -43,8 +43,10 @@ bias = mean(resample statistics) - estimate
 interval = [q(alpha/2) - bias, q(1 - alpha/2) - bias]
 ```
 
-For the two effects that are means — the integer-percentage excess per unit, and the top-decile
-share gap — the shift is negligible and does nothing. It is in the code for the third.
+For the effects that are means and shares -- the integer-percentage excess per unit, the
+top-decile share gap, and the descriptive shares -- the shift is negligible and does nothing.
+It was put in the code for the last-digit distance, and there it turned out not to be enough;
+the next section has why, and what the distance uses instead.
 
 The last-digit effect is the total variation distance from uniform, a sum of absolute
 deviations. Resampling adds noise to a histogram, and added noise can only push a sum of
@@ -73,26 +75,95 @@ better instrument. Its acceleration term needs a jackknife over units, which is 
 whose cost and whose behaviour on a boundary statistic are worth measuring before adopting
 rather than assuming.
 
-## A distance has no interval that contains zero
+## The distance needed more than a shift
 
-This follows from the above and is worth stating on its own, because it is the misreading that
-would do the most damage. A total variation distance is non-negative. Its interval therefore
-never contains zero, however honest the data, and "the interval excludes zero" means nothing at
-all for it.
+Issue #29. The shift made the interval contain its estimate; it did not make it cover the
+distance. The counted distance is itself biased upward by the noise, by about `1.2 / sqrt(n)` on
+perfectly uniform digits: 0.038 at 1,000 units, 0.019 at 4,000. An interval re-centred on the
+counted value covers what the counted value averages at that sample size, which is not the
+distance a reader takes it for.
 
-What a reader needs instead is the value the statistic takes **when nothing is wrong**, which
-is not zero and which falls as `1 / sqrt(n)`. Every `last_digit` finding carries it as
-`details["null_expected_tvd"]` and prints it in the title:
+Measured with `last_digit_uniformity` on digits drawn at a known distance theta from uniform,
+200 draws per cell, the same draws before and after. The departure is either spread, +theta/5 on
+digits 0-4 and -theta/5 on 5-9, or put on two digits, one over and one under, with the other eight
+untouched. Coverage of theta, shifted interval -> the one now shipped:
+
+| units | departure | theta = 0 | 0.01 | 0.02 | 0.04 |
+| --- | --- | --- | --- | --- | --- |
+| 1,000 | spread | 0.01 -> 0.97 | 0.18 -> 0.99 | 0.64 -> 1.00 | 0.91 -> 1.00 |
+| 1,000 | two digits | 0.00 -> 0.96 | 0.10 -> 0.99 | 0.20 -> 0.97 | 0.28 -> 0.99 |
+| 4,000 | spread | 0.01 -> 0.96 | 0.55 -> 1.00 | 0.90 -> 1.00 | 0.93 -> 0.99 |
+| 4,000 | two digits | 0.03 -> 0.99 | 0.33 -> 0.99 | 0.26 -> 0.99 | 0.22 -> 0.98 |
+
+At 20,000 units and at theta 0.005 and 0.08 the shipped interval covered 96 to 100 per cent as
+well. It also settles the comparison the interval exists for. With a true distance of 0.01,
+100 draws at 1,000 units against 100 at 32,000, the shifted intervals were disjoint in 57 per
+cent of the 10,000 pairs, and the shipped ones in none.
+
+What `psephos.interval.distance_interval` does:
+
+- **The effect** is the counted distance less the bootstrap's estimate of its bias,
+  `T - (E*[T*] - T)`, computed exactly rather than by resampling: each digit's count in a
+  resample is binomial, so the expected distance of a resample is a sum of binomial mean
+  absolute deviations. It is seedless and does not change with `--no-intervals`. It removes
+  nearly all the bias once the departure is large and about 40 per cent of it at zero, 0.023
+  against 0.038 at 1,000 units. No estimate of a distance is unbiased near zero, which is why
+  the interval, not the point, is the thing to read there.
+- **The interval** bounds the true distance from each side by what counting noise can do to the
+  counted one. The distance theta is the largest `p(B) - |B| / 10` over sets of digits B,
+  reached at A, the digits with more than a tenth.
+  - Above. T is at least the observed share of A less `|A| / 10`, so `theta - T` is at most the
+    true share of A less the observed one: one share's sampling error, with a standard
+    deviation of at most `1 / (2 sqrt(n))` whatever A is. The upper end is
+    `T + 1.96 / (2 sqrt(n))`.
+  - Below. `T - theta` is at most the distance between the observed shares and the true ones,
+    which is all of T when theta is zero. Its 97.5th percentile comes from resampling the
+    precincts within size bands, as the distance between each resample's shares and the
+    observed ones. The lower end is T less that, floored at zero.
+
+  Each end misses at most 2.5 per cent of the time whatever the true shares are, so the
+  interval covers the distance at least 95 per cent of the time.
+
+The cost is width. The lower end has to allow for the case where most of the counted distance
+is noise, so on uniform digits at 1,000 units the interval is 0.069 wide on average against
+0.046 for the shifted one, and at 4,000 units 0.035 against 0.023. The shifted interval was
+narrower by being about a different quantity.
+
+Two alternatives were measured and not shipped. The basic bootstrap,
+`[2T - q(1 - alpha/2), 2T - q(alpha/2)]`, is centred on a bias-corrected estimate. Simulated in
+the cells of the table above, it covered 70 to 92 per cent with theta above zero and 58 to 60
+per cent at zero. It estimates the bias at the observed shares, where no digit sits exactly on a tenth,
+and the bias is largest where digits do, as the eight untouched digits of the two-digit pattern
+do. Cohen's w, with a noncentral chi-square interval, has an unbiased square and an interval
+that can include zero, but it is a different number from the distance the title prints, and a
+given w allows any distance from `w / sqrt(20)` to `w / 2`.
+
+The STRONG flag's size gate, a distance of 0.02, now reads the effect. On uniform digits at
+4,000 units the counted distance reached 0.02 in 373 of 1,000 draws, the effect in 101; the
+p-value at or below 0.001 that the flag also needs is what keeps honest data from it.
+
+## The distance's interval reaches zero
+
+The earlier version of this document said a distance's interval could not contain zero. That was
+wrong twice: the floor clamp did return zero as the lower end now and then, and nothing stops a
+valid interval for a distance from reaching zero. A distance cannot be negative, but zero is a
+value it takes, and an interval for it should include zero whenever the data are consistent with
+no departure at all. The one now reported does: on uniform digits its lower end was zero in 96 to
+99 per cent of draws.
+
+The counted distance is still printed, beside what genuinely uniform digits count at the same
+sample size, `details["null_expected_tvd"]`:
 
 ```
-Last digit of PartyA across 3490 units: most common 1 (11.0 per cent), least common 7
-(9.3 per cent); uniform would be 10.0 per cent. Distance from uniform 0.0146
-[0.0038, 0.0269], against 0.0203 for genuinely uniform digits at this sample size.
+Last digit of party_second across 2864 units: most common 4 (10.8 per cent), least common 5
+(9.2 per cent); uniform would be 10.0 per cent. Distance from uniform, less what counting noise
+adds: 0.0084 (95 per cent interval [0.0000, 0.0370]). As counted it is 0.0186, against about
+0.0225 for genuinely uniform digits at this sample size.
 ```
 
-0.0146 against an expected 0.0203 is a dataset slightly *closer* to uniform than chance
-produces. A reader given only the first number and an interval excluding zero could have
-concluded the opposite.
+That is the second party of `clean_election()` from `tests/conftest.py`, with the registered
+voters as sizes, as an audit runs it. The same digits used to print `0.0186 [0.0060, 0.0325]`:
+an interval clear of zero, on honest digits slightly closer to uniform than chance puts them.
 
 ## Every check that reports an effect
 

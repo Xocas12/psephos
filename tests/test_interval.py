@@ -314,7 +314,7 @@ def test_a_distance_interval_is_floored_at_zero_and_says_so():
 
 
 def test_expected_tvd_under_uniform_shrinks_with_n_and_is_not_zero():
-    """The number a reader needs beside a distance, since its interval never contains zero."""
+    """What counting noise alone makes the counted distance, printed beside it in the title."""
     big, small = expected_tvd_under_uniform(20_000), expected_tvd_under_uniform(500)
     assert 0.0 < big < small
     # Roughly 1 / sqrt(n).
@@ -381,16 +381,24 @@ def test_last_digit_interval_brackets_the_effect_on_clean_and_invented_digits():
         assert f.details["ci_stratified_by"] == "precinct size"
 
 
-def test_last_digit_distance_is_read_against_the_null_not_against_zero():
-    """Clean digits sit near the expected distance; invented ones sit well above it."""
+def test_last_digit_interval_reaches_zero_on_clean_digits_and_not_on_invented_ones():
+    """The interval is for the distance, which is zero for honest digits.
+
+    An earlier version of this test pinned that the clean interval contained
+    ``null_expected_tvd``, the value the counted distance averages on uniform digits at this
+    sample size, which is what the bias-shifted interval did cover instead of the distance
+    (issue #29).
+    """
     df = clean_election(4000)
     clean = last_digit_uniformity(df["party_incumbent"].to_numpy(float), n_boot=N_BOOT, seed=0)
     dirty_df = with_invented_last_digits(df, fraction=0.4)
     dirty = last_digit_uniformity(
         dirty_df["party_incumbent"].to_numpy(float), n_boot=N_BOOT, seed=0
     )
-    assert clean.ci_low <= clean.details["null_expected_tvd"] <= clean.ci_high
-    assert dirty.ci_low > dirty.details["null_expected_tvd"]
+    assert clean.ci_low == 0.0
+    assert clean.details["ci_reaches_zero"] is True
+    assert dirty.ci_low > 0.0
+    assert dirty.ci_low > clean.ci_high, "invented digits should not overlap clean ones"
 
 
 def test_turnout_dependence_interval_brackets_the_gap():
@@ -424,6 +432,161 @@ def test_n_boot_zero_leaves_every_check_without_an_interval():
     assert (f.ci_low, f.ci_high) == (None, None)
     assert (g.ci_low, g.ci_high) == (None, None)
     assert f.effect is not None and g.effect is not None, "the effect is still reported"
+
+
+# --------------------------------------------------------------------- the distance interval
+
+
+def _counts_at_distance(rng: np.random.Generator, n: int, theta: float, pattern: str) -> np.ndarray:
+    """``n`` counts whose last digits are drawn at a total variation distance ``theta`` from
+    uniform: spread as +theta/5 on digits 0-4 and -theta/5 on 5-9, or on two digits, one over
+    and one under, with the other eight untouched."""
+    shares = np.full(10, 0.1)
+    if pattern == "spread":
+        shares[:5] += theta / 5
+        shares[5:] -= theta / 5
+    else:
+        shares[0] += theta
+        shares[1] -= theta
+    assert 0.5 * np.abs(shares - 0.1).sum() == pytest.approx(theta)
+    digits = rng.choice(10, size=n, p=shares)
+    return 10.0 * rng.integers(10, 500, n) + digits
+
+
+@pytest.mark.parametrize("n", [1000, 4000])
+@pytest.mark.parametrize(
+    ("theta", "pattern"),
+    [(0.0, "spread")] + [(t, p) for t in (0.01, 0.02, 0.04) for p in ("spread", "two digits")],
+)
+def test_the_last_digit_interval_covers_a_known_distance(n, theta, pattern):
+    """Issue #29: the interval is reported as an interval for the distance, so it has to cover it.
+
+    The bias-shifted percentile interval was centred on the counted distance, which noise
+    inflates. On draws like these it covered a true distance of zero in 0 to 3 per cent of them
+    and a distance on two digits in 10 to 33 per cent (docs/effect_intervals.md has the table).
+    The acceptance line asks for 90 per cent in every cell; the construction aims at 95.
+    """
+    rng = np.random.default_rng([n, round(1000 * theta), int(pattern == "spread")])
+    reps = 200
+    covered = 0
+    for _ in range(reps):
+        f = last_digit_uniformity(
+            _counts_at_distance(rng, n, theta, pattern), seed=int(rng.integers(1 << 30))
+        )
+        assert f.ci_low is not None
+        covered += f.ci_low <= theta <= f.ci_high
+    assert covered >= 0.90 * reps, f"covered theta={theta} in {covered} of {reps} draws"
+
+
+def test_the_same_distance_on_a_thousand_units_and_on_thirty_two_thousand_agrees():
+    """The comparison the interval exists for (#16): the same number measured on few units and
+    on many. With a true distance of 0.01, the bias-shifted intervals were disjoint in about
+    half the cross-size pairs, because the small sample's interval sat on its larger noise."""
+    rng = np.random.default_rng(16)
+    ends = {}
+    for n in (1_000, 32_000):
+        fs = [
+            last_digit_uniformity(
+                _counts_at_distance(rng, n, 0.01, "spread"),
+                n_boot=400,
+                seed=int(rng.integers(1 << 30)),
+            )
+            for _ in range(40)
+        ]
+        ends[n] = (np.array([f.ci_low for f in fs]), np.array([f.ci_high for f in fs]))
+    (lo_s, hi_s), (lo_l, hi_l) = ends[1_000], ends[32_000]
+    disjoint = (hi_s[:, None] < lo_l[None, :]) | (hi_l[None, :] < lo_s[:, None])
+    assert disjoint.mean() <= 0.05, f"{disjoint.mean():.0%} of cross-size pairs disjoint"
+
+
+def test_the_strong_gate_reads_the_distance_less_its_noise():
+    """Issue #29: the 0.02 size gate compared the counted distance, biased upward, with a fixed
+    number. Found by scanning: the true distance here is 0.015, below the gate, but the counted
+    one is above it and the p-value is under 0.001, so the old gate called it strong."""
+    rng = np.random.default_rng([4000, 123])
+    counts = _counts_at_distance(rng, 4000, 0.015, "two digits")
+    f = last_digit_uniformity(counts, n_boot=N_BOOT)
+    digits = _digits_of(counts)
+    assert f.pvalue <= 0.001
+    assert _tvd(digits, digits.size) >= 0.02, "the counted distance clears the gate"
+    assert f.effect < 0.02
+    assert f.flag is Flag.NOTABLE
+
+
+def test_the_last_digit_effect_is_the_counted_distance_less_its_noise():
+    """Seedless and independent of the interval: an effect that moved with the resampling seed,
+    or with --no-intervals, would be a worse number than the biased one it replaces."""
+    counts = _counts_at_distance(np.random.default_rng(3), 2000, 0.0, "spread")
+    digits = _digits_of(counts)
+    a = last_digit_uniformity(counts, n_boot=N_BOOT, seed=0)
+    b = last_digit_uniformity(counts, n_boot=N_BOOT, seed=9)
+    c = last_digit_uniformity(counts, n_boot=0)
+    assert a.effect == b.effect == c.effect
+    counted = _tvd(digits, digits.size)
+    assert a.details["tvd_as_counted"] == pytest.approx(counted)
+    assert a.effect == pytest.approx(max(0.0, counted - a.details["tvd_noise_bias"]))
+    assert 0.0 <= a.effect < counted
+
+
+def test_the_noise_bias_is_the_mean_added_distance_of_resampled_histograms():
+    """``tvd_noise_bias`` is computed exactly, from binomial cell counts; it has to equal what
+    resampling actually adds, measured here on 20,000 multinomial draws."""
+    from psephos.interval import tvd_noise_bias
+
+    observed = np.array([118, 95, 101, 87, 104, 99, 93, 110, 96, 97], dtype=float)
+    n = int(observed.sum())
+    reference = np.full(10, 0.1)
+    counted = 0.5 * np.abs(observed / n - reference).sum()
+    draws = np.random.default_rng(0).multinomial(n, observed / n, size=20_000)
+    added = 0.5 * np.abs(draws / n - reference).sum(axis=1) - counted
+    exact = tvd_noise_bias(observed, reference)
+    assert exact > 0.0
+    assert exact == pytest.approx(added.mean(), abs=4 * added.std() / np.sqrt(added.size))
+
+
+def test_the_distance_interval_contains_its_effect_and_the_counted_distance():
+    """The Finding guard still holds: both numbers a reader is shown sit inside the interval,
+    including where the counted distance is below what noise alone would add."""
+    from psephos.interval import distance_interval
+
+    rng = np.random.default_rng(5)
+    for n in (150, 1000, 8000):
+        for _ in range(30):
+            cells = rng.integers(0, 10, n)
+            effect, lo, hi, details = distance_interval(
+                cells, np.full(10, 0.1), n_boot=200, seed=int(rng.integers(1 << 30))
+            )
+            assert lo <= effect <= hi
+            assert lo <= details["tvd_as_counted"] <= hi
+            assert lo >= 0.0
+
+
+def test_no_doc_or_docstring_still_says_the_interval_cannot_contain_zero():
+    """Issue #29: the README, CONTRIBUTING, the effect-intervals doc, the report's interval
+    section and several docstrings said so, and it was false: the old clamp did return zero as
+    the lower end now and then, and the distance's interval now reaches zero whenever the
+    digits are consistent with uniform."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    files = [
+        *root.glob("*.md"),
+        *(root / "docs").glob("*.md"),
+        *(root / "src").rglob("*.py"),
+        *(root / "tests").glob("*.py"),
+    ]
+    claim = re.compile(
+        r"never\s+contains?\s+zero|excludes?\s+zero\s+(?:on|however|even)", re.IGNORECASE
+    )
+    offenders = []
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        # Join adjacent string literals, so a sentence split across two source lines is read
+        # as the sentence it prints.
+        text = re.sub(r"\"\s*\n\s*[rfbu]*\"", "", text)
+        offenders += [f"{path.relative_to(root)}: {m.group(0)!r}" for m in claim.finditer(text)]
+    assert offenders == []
 
 
 # --------------------------------------------------------------------- the Finding guard
