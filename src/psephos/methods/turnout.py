@@ -12,9 +12,16 @@ that dependence into a count of anomalous votes, because that construction has n
 against its source and inventing one would put an unearned number into a serious claim. Issue #9
 tracks it.
 
-A large positive dependence is not by itself evidence of anything. Turnout and partisanship are
-genuinely correlated in most countries: rural areas often have both higher turnout and stronger
-support for incumbents. The confounds list says so and the report prints it.
+The test is two-sided, and a share that FALLS with turnout flags at the same thresholds as one
+that rises. Votes added to a rival's pile raise turnout and lower this contestant's share in the
+same precincts, so the falling direction is the same signature read from the other side. The
+title and the mobilisation confound therefore follow the sign of rho rather than assuming which
+way the data go: a headline is the line most likely to be quoted on its own, and one that said
+"rises" over a negative rho would state the opposite of the data (issue #27).
+
+A large dependence, in either direction, is not by itself evidence of anything. Turnout and
+partisanship are genuinely correlated in most countries: rural areas often have both higher
+turnout and stronger support for incumbents. The confounds list says so and the report prints it.
 """
 
 from __future__ import annotations
@@ -51,14 +58,32 @@ def _quantile(a: np.ndarray, q: float) -> float:
     return float(part[lo] + (h - lo) * (part[hi] - part[lo]))
 
 
-CONFOUNDS = [
+_GEOGRAPHY = (
     "Genuine geographic correlation between turnout and partisanship. Rural and small-town "
     "areas frequently have both higher turnout and different politics, which produces this "
-    "dependence with nobody adding a single vote.",
+    "dependence with nobody adding a single vote."
+)
+_COMPOSITION = (
+    "Compositional effects, where units differ in the age or ethnic composition that drives "
+    "both quantities."
+)
+
+#: Innocent explanations for a share that rises with turnout.
+CONFOUNDS = [
+    _GEOGRAPHY,
     "Differential mobilisation: a well-organised campaign raises both its own turnout and its "
     "own share in the same places, which is what campaigns are for.",
-    "Compositional effects, where units differ in the age or ethnic composition that drives "
-    "both quantities.",
+    _COMPOSITION,
+]
+
+#: The same for a share that falls with turnout. Only the mobilisation one changes: here it is a
+#: rival's campaign doing the raising.
+CONFOUNDS_FALLING = [
+    _GEOGRAPHY,
+    "Differential mobilisation: a rival's well-organised campaign raises both turnout and the "
+    "rival's own share in the same places, so this contestant's share is lower wherever "
+    "turnout is higher, which is what campaigns are for.",
+    _COMPOSITION,
 ]
 
 
@@ -74,11 +99,12 @@ def turnout_share_dependence(
     ci_level: float = 0.95,
     seed: int | None = 0,
 ) -> Finding:
-    """Measure how strongly the winner's share rises with turnout.
+    """Measure how strongly the winner's share rises or falls with turnout.
 
-    The reported effect is the top-decile share gap in percentage points, with a bootstrap
-    interval over units. ``sizes`` stratifies that resample by precinct size; without it the
-    resample is unstratified and the finding says so.
+    Two-sided: a negative rho flags at the same thresholds as a positive one, and the title says
+    which way the share moves. The reported effect is the top-decile share gap in percentage
+    points, signed, with a bootstrap interval over units. ``sizes`` stratifies that resample by
+    precinct size; without it the resample is unstratified and the finding says so.
 
     The decile cut is recomputed inside each resample rather than held at the observed value,
     because the cut is part of the estimator: an interval that conditioned on one cut would
@@ -156,17 +182,27 @@ def turnout_share_dependence(
     else:
         flag = Flag.OK
 
+    if rho > 0:
+        direction = "rises"
+    elif rho < 0:
+        direction = "falls"
+    else:
+        direction = "neither rises nor falls"
     interval = (
         ""
         if ci_low is None or ci_high is None
         else f" ({100 * ci_level:g} per cent interval [{ci_low:+.1f}, {ci_high:+.1f}])"
     )
+    # The gap is printed signed, top decile minus the rest, with no direction word after it.
+    # A word chosen from the sign on top of the sign read "-8.9 points ... lower", which is a
+    # double negative that literally says higher, and the interval is signed either way.
     title = (
-        f"Share for {winner} rises with turnout: Spearman rho {rho:+.3f}. "
-        f"In the top turnout decile (turnout at or above {cut:.1f} per cent) the share is "
-        f"{gap:+.1f} points{interval} {'higher' if gap >= 0 else 'lower'} than elsewhere, and "
-        f"{100 * share_in_top:.1f} per cent of that contestant's votes are cast there."
+        f"Share for {winner} {direction} with turnout: Spearman rho {rho:+.3f}. "
+        f"Its share in the top turnout decile (turnout at or above {cut:.1f} per cent) minus "
+        f"its share elsewhere is {gap:+.1f} points{interval}, and that decile holds "
+        f"{100 * share_in_top:.1f} per cent of its votes."
     )
+    confounds = CONFOUNDS_FALLING if rho < 0 else CONFOUNDS
 
     return Finding(
         check="turnout_share_dependence",
@@ -180,7 +216,7 @@ def turnout_share_dependence(
         n_used=n_used,
         n_excluded=n_excluded,
         slice_name=slice_name,
-        confounds=CONFOUNDS if flag in (Flag.NOTABLE, Flag.STRONG) else [],
+        confounds=confounds if flag in (Flag.NOTABLE, Flag.STRONG) else [],
         details={
             "spearman_rho": rho,
             "top_decile_cut_pct": cut,

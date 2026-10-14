@@ -140,8 +140,12 @@ Kobak, Shpilkin and Pshenichnikov (2016).
 are not. Following Beber and Scacco (2012), with the caveat that psephos reports the direction
 of the last-two-digit signature descriptively rather than as a test, pending validation.
 
-**Turnout and vote share.** How strongly the leading contestant's share rises with turnout,
-measured three ways. Reported as dependence, not as a vote count.
+**Turnout and vote share.** How strongly the leading contestant's share moves with turnout,
+measured three ways. Reported as dependence, not as a vote count. The test is two-sided: a share
+that falls with turnout flags at the same thresholds as one that rises, because votes added to a
+rival's pile lower the leader's share in exactly the precincts where they raise turnout. The
+headline says which way the share moves, and the innocent explanations printed with it are
+written for that direction.
 
 **By precinct size.** The percentage checks again, within size bands, so you can see whether a
 signal lives in the small units.
