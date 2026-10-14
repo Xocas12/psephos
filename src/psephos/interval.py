@@ -28,8 +28,9 @@ ends.
 
 The bias term is not a refinement. Two of the three effects here are means, where it is
 negligible and the correction does nothing. The third, the last digits' total variation
-distance from uniform, is a sum of absolute deviations, and resampling adds noise that can only
-push a sum of absolute deviations up. Measured on this repository's own clean generator, the
+distance from the share each digit should get once counts below ``min_count`` are left out, is
+a sum of absolute deviations, and resampling adds noise that can only push a sum of absolute
+deviations up. Measured on this repository's own clean generator, the
 bootstrap distribution of that distance sits 26 to 118 per cent of the estimate above it at
 sample sizes between 500 and 32,000, and the bias does not shrink away. The plain percentile
 interval therefore sits above the point estimate and sometimes excludes it outright, which is
@@ -268,20 +269,30 @@ def bootstrap_ci(
     return lo, hi, details
 
 
-def expected_tvd_under_uniform(
-    n_used: int, n_cells: int = 10, *, n_sim: int = 400, seed: int = 0
+def expected_tvd(
+    n_used: int, shares: Sequence[float] | np.ndarray, *, n_sim: int = 400, seed: int = 0
 ) -> float:
-    """Total variation distance from uniform that honest data of this size produces anyway.
+    """Total variation distance from ``shares`` that honest data of this size produces anyway.
 
     A total variation distance is non-negative, so its interval never contains zero and
     excluding zero means nothing. What a reader needs instead is the value the statistic takes
     when nothing is wrong, which is not zero and which shrinks as ``1 / sqrt(n)``. Simulated
     rather than taken from the normal approximation, because at the cell counts and sample
-    sizes here the approximation is worth less than 400 multinomial draws cost.
+    sizes here the approximation is worth less than 400 multinomial draws cost. The draws are
+    multinomial on ``shares`` themselves, so the reference is the null the distance is
+    measured from, whatever that null is.
     """
     if n_used <= 0:
         return float("nan")
+    p = np.asarray(shares, dtype=float)
     rng = np.random.default_rng(seed)
-    draws = rng.multinomial(n_used, np.full(n_cells, 1.0 / n_cells), size=n_sim)
+    draws = rng.multinomial(n_used, p, size=n_sim)
     props = draws / n_used
-    return float(np.mean(0.5 * np.abs(props - 1.0 / n_cells).sum(axis=1)))
+    return float(np.mean(0.5 * np.abs(props - p).sum(axis=1)))
+
+
+def expected_tvd_under_uniform(
+    n_used: int, n_cells: int = 10, *, n_sim: int = 400, seed: int = 0
+) -> float:
+    """:func:`expected_tvd` when the null is a flat uniform over ``n_cells`` cells."""
+    return expected_tvd(n_used, np.full(n_cells, 1.0 / n_cells), n_sim=n_sim, seed=seed)

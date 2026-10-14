@@ -139,7 +139,10 @@ Kobak, Shpilkin and Pshenichnikov (2016).
 **Last digits.** Whether the last digit of vote counts is uniform. Numbers invented by people
 are not. Only counts of at least 100 are tested, and that cut alone makes the endings just above
 it more common wherever many counts sit near it, so the comparison is with the shares honest
-counts give after the cut rather than with a flat 10 per cent. Following Beber and Scacco
+counts give after the cut rather than with a flat 10 per cent. Those shares assume the counts
+are smooth across a block of ten values (a hundred for the last two digits); where they are
+not, as when a party's counts are spread by little more than counting noise around the cut,
+the check reports that it cannot test them rather than testing. Following Beber and Scacco
 (2012), with the caveat that psephos reports the direction of the last-two-digit signature
 descriptively rather than as a test, pending validation.
 

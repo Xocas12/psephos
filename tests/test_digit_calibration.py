@@ -9,6 +9,12 @@ checks exactly as the audit runs them, through ``run_digit_checks``, on hundreds
 honest elections, and hold every column's flag rate to a binomial test against 5 per cent at
 the 0.01 level.
 
+Where the counts are spread by little more than counting noise around the cut, no smooth
+shape fitted to whole blocks pins the expected shares down to the precision a large sample
+tests them at, and the checks refuse those columns as underpowered rather than test them. Those
+tests hold the rate among the columns that were tested to the same binomial test, and say how
+many were refused.
+
 ``n_boot=0`` because the flag does not depend on the interval, which is the slow part;
 ``test_the_flag_does_not_depend_on_the_interval`` pins that.
 """
@@ -22,9 +28,11 @@ from scipy import stats
 
 from psephos._types import Flag
 from psephos.audit import run_digit_checks
+from psephos.interval import expected_tvd, expected_tvd_under_uniform
 from psephos.methods import digits
 from psephos.methods.digits import (
     CONFOUNDS_LAST_DIGIT,
+    MAX_SHAPE_DISAGREEMENT,
     MIN_COUNT_FOR_LAST_DIGIT,
     last_digit_uniformity,
     last_two_digit_pairs,
@@ -51,30 +59,49 @@ STRADDLING_1000 = {"min_size": 2000, "max_size": 8000, "turnout_mean": 0.65, "wi
 #: (precincts, elections): the two scales the issue asked for.
 SCALES = [(4000, 200), (20_000, 40)]
 
+#: Bands of registered voters that leave near_the_cut_election's minor party, expected count
+#: 0.099 of them, spread by little more than its counting noise of about ten votes around the
+#: cut: expected counts 99-109, 94-104 and 89-99.
+NARROW_BANDS = [(1000, 1100), (950, 1050), (900, 1000)]
+
+#: near_the_cut_election's major party with these bands of registered voters, turnout 0.59 and
+#: a minor share of 0.15: a winner with expected count about half the registered voters,
+#: centred on 1000 and spread by 62 and 90 votes.
+NARROW_WINNERS = [(1800, 2200), (1700, 2300)]
+NARROW_WINNER_ARGS = {"turnout": 0.59, "minor_share": 0.15}
+
 
 def _flagged(f) -> bool:
     return f.flag in (Flag.NOTABLE, Flag.STRONG)
 
 
-def _assert_nominal(tally: dict[str, list], n_elections: int) -> None:
-    """Every column's flag rate passes a two-sided binomial test against 5% at 0.01, and the
-    strong flags, pooled over columns, one against 0.1% at 0.01."""
+def _refused_by_the_shape_check(f) -> bool:
+    return f.flag is Flag.UNDERPOWERED and "change too fast" in f.title
+
+
+def _assert_nominal(tally: dict[str, list], n_elections: int, *, refusals: bool = False) -> None:
+    """Every column's flag rate among the elections it was tested in passes a two-sided
+    binomial test against 5% at 0.01, and the strong flags, pooled over columns, one against
+    0.1% at 0.01. Unless ``refusals``, every election must have been tested."""
     lines = []
     failed = []
     strong = total = 0
     for column, findings in tally.items():
         assert len(findings) == n_elections
-        assert not [f for f in findings if f.flag is Flag.UNDERPOWERED], (
-            f"{column}: an underpowered election tests nothing"
+        tested = [f for f in findings if f.flag is not Flag.UNDERPOWERED]
+        if not refusals:
+            assert len(tested) == n_elections, f"{column}: an underpowered election tests nothing"
+        k = sum(_flagged(f) for f in tested)
+        p = stats.binomtest(k, len(tested), 0.05).pvalue if tested else 1.0
+        lines.append(
+            f"{column}: {k}/{len(tested)} tested flagged, {n_elections - len(tested)} refused, "
+            f"binomial p={p:.2g}"
         )
-        k = sum(_flagged(f) for f in findings)
-        p = stats.binomtest(k, n_elections, 0.05).pvalue
-        lines.append(f"{column}: {k}/{n_elections} flagged, binomial p={p:.2g}")
         if p < 0.01:
             failed.append(column)
-        strong += sum(f.flag is Flag.STRONG for f in findings)
-        total += n_elections
-    p_strong = stats.binomtest(strong, total, 0.001, alternative="greater").pvalue
+        strong += sum(f.flag is Flag.STRONG for f in tested)
+        total += len(tested)
+    p_strong = stats.binomtest(strong, total, 0.001, alternative="greater").pvalue if total else 1
     lines.append(f"strong: {strong}/{total}, binomial p={p_strong:.2g}")
     assert not failed and p_strong >= 0.01, "\n".join(lines)
 
@@ -111,6 +138,31 @@ def test_last_digit_flag_rate_is_nominal_on_every_contestant_column(n, n_electio
 
 
 @pytest.mark.parametrize(("n", "n_elections"), SCALES)
+def test_last_digit_on_counts_spread_by_counting_noise_at_the_cut_is_nominal_or_refused(
+    n, n_elections
+):
+    """#25: a minor party whose counts sit within about one block of the cut and are spread by
+    little more than counting noise. With the quadratic shares these were flagged in up to 32 of
+    40 elections at 20,000 precincts, 17 of them strong. Now each election is either tested at
+    the nominal rate or refused, and the band whose shares the quartic follows least well,
+    centred on the cut, is the one refused at 20,000."""
+    tally: dict[str, list] = {}
+    for lo, hi in NARROW_BANDS:
+        for s in range(n_elections):
+            frame = near_the_cut_election(n=n, seed=2500 + s, min_size=lo, max_size=hi)
+            tally.setdefault(f"party_minor, {lo}-{hi}", []).append(
+                _digit_findings(frame, NEAR_THE_CUT, "last_digit")["party_minor"]
+            )
+    _assert_nominal(tally, n_elections, refusals=True)
+    # Counts just above the cut are tested, not waved through as underpowered, at both scales.
+    above = tally["party_minor, 1000-1100"]
+    assert sum(f.flag is not Flag.UNDERPOWERED for f in above) >= n_elections // 2
+    if n >= 20_000:
+        centred = tally["party_minor, 950-1050"]
+        assert sum(_refused_by_the_shape_check(f) for f in centred) >= 0.9 * n_elections
+
+
+@pytest.mark.parametrize(("n", "n_elections"), SCALES)
 def test_last_two_digits_flag_rate_is_nominal_on_counts_straddling_1000(n, n_elections):
     """#25, the same construction at the 1000 cut: the winner's last two digits, as the audit
     tests them, on honest counts about half of which are at least 1000."""
@@ -123,6 +175,32 @@ def test_last_two_digits_flag_rate_is_nominal_on_counts_straddling_1000(n, n_ele
     kept = [f.n_used / (f.n_used + f.n_excluded) for f in findings]
     assert 0.3 < float(np.median(kept)) < 0.7, f"median share kept {np.median(kept):.2f}"
     _assert_nominal({"party_incumbent": findings}, n_elections)
+
+
+@pytest.mark.parametrize(("n", "n_elections"), SCALES)
+def test_last_two_digits_on_a_winner_spread_by_under_100_is_refused_not_flagged(n, n_elections):
+    """#25: honest winner counts centred on 1000 with a standard deviation under a hundred,
+    narrower than a block of the pair table. With the quadratic shares the table was flagged
+    in 31 and 21 of 200 elections at 4,000 precincts and 31 and 18 of 40 at 20,000. Their last
+    two digits are not free, and the check now says it cannot test them."""
+    tally: dict[str, list] = {}
+    for lo, hi in NARROW_WINNERS:
+        spread = []
+        for s in range(n_elections):
+            frame = near_the_cut_election(
+                n=n, seed=2500 + s, min_size=lo, max_size=hi, **NARROW_WINNER_ARGS
+            )
+            spread.append(float(frame["party_major"].std()))
+            [f] = _digit_findings(frame, NEAR_THE_CUT, "last_two_digits").values()
+            assert f.slice_name == "party_major"
+            tally.setdefault(f"party_major, {lo}-{hi}", []).append(f)
+        assert 50 < float(np.median(spread)) < 100, f"winner sd {np.median(spread):.0f}"
+        kept = [f.n_used / (f.n_used + f.n_excluded) for f in tally[f"party_major, {lo}-{hi}"]]
+        assert 0.3 < float(np.median(kept)) < 0.7, f"median share kept {np.median(kept):.2f}"
+    _assert_nominal(tally, n_elections, refusals=True)
+    for column, findings in tally.items():
+        refused = sum(f.flag is Flag.UNDERPOWERED for f in findings)
+        assert refused >= 0.9 * n_elections, f"{column}: only {refused} refused"
 
 
 def test_the_flag_does_not_depend_on_the_interval():
@@ -140,11 +218,11 @@ def test_the_flag_does_not_depend_on_the_interval():
 # ------------------------------------------------------------------- the expected shares
 
 
-def _near_the_cut_pmf() -> np.ndarray:
+def _band_pmf(lo: int, hi: int, p: float = 0.55 * 0.18) -> np.ndarray:
     """The exact distribution of near_the_cut_election's minor-party count: binomial with
-    probability 0.55 * 0.18 given registered voters, uniform on 1000 to 1400."""
-    registered = np.arange(1000, 1401)
-    return stats.binom.pmf(np.arange(400)[:, None], registered[None, :], 0.55 * 0.18).mean(axis=1)
+    probability 0.55 * 0.18 given registered voters, uniform on ``lo`` to ``hi``."""
+    registered = np.arange(lo, hi + 1)
+    return stats.binom.pmf(np.arange(400)[:, None], registered[None, :], p).mean(axis=1)
 
 
 def _exact_shares(pmf: np.ndarray, min_count: int, period: int) -> np.ndarray:
@@ -160,16 +238,29 @@ def _counts_with(pmf: np.ndarray) -> np.ndarray:
     return np.repeat(np.arange(pmf.size), np.rint(pmf / pmf.sum() * 1e6).astype(int)).astype(float)
 
 
+def _quadratic_shares(counts: np.ndarray, min_count: int, period: int) -> np.ndarray:
+    """The first version of the correction: a quadratic through each block and its neighbours,
+    which leaves only the block just below the cut and the one just above."""
+    below = ((counts >= min_count - period) & (counts < min_count)).sum()
+    first = ((counts >= min_count) & (counts < min_count + period)).sum()
+    n_used = (counts >= min_count).sum()
+    centre = (period - 1) / 2.0
+    offset = (np.arange(period) - min_count) % period - centre
+    slope = -(first + below) / (2.0 * period**2)
+    curve = (below - first) / (2.0 * period**3)
+    expected = n_used / period + slope * offset + curve * (offset**2 - (period**2 - 1) / 12.0)
+    return expected / n_used
+
+
 @pytest.mark.parametrize("min_count", [100, 105])
 def test_expected_shares_match_the_exact_ones_for_the_near_the_cut_party(min_count):
     """#25: the correction is a formula, so check it against the digit distribution computed
     exactly from the density of near_the_cut_election's minor party rather than against another
     simulation. With the cut at 105 the excess belongs on digits 5 to 9, where the issue saw it
     move."""
-    pmf = _near_the_cut_pmf()
+    pmf = _band_pmf(1000, 1400)
     exact = _exact_shares(pmf, min_count, 10)
-    shares, below, first = digits.expected_shares_after_cut(_counts_with(pmf), min_count, 10)
-    assert below > 0 and first > 0
+    shares = digits.expected_shares_after_cut(_counts_with(pmf), min_count, 10)
     lowest_ending_above_the_cut = min_count % 10
     assert np.argmax(exact) == np.argmax(shares) == lowest_ending_above_the_cut
     # The cut moves the exact shares well away from uniform...
@@ -179,21 +270,57 @@ def test_expected_shares_match_the_exact_ones_for_the_near_the_cut_party(min_cou
     assert np.abs(shares - exact).max() < 0.06 * departure, np.round(shares - exact, 6)
 
 
+@pytest.mark.parametrize(("lo", "hi"), [(1000, 1200), *NARROW_BANDS])
+def test_the_quartic_follows_narrow_counts_better_than_the_quadratic(lo, hi):
+    """#25: counts spread by little more than counting noise bend within a block or two of the
+    cut. The quartic through five blocks gets their exact shares at least twice as close as the
+    quadratic through three did (0.0014 against 0.0036 for the 1000-1100 band), though not
+    exactly, which is why the shape check exists."""
+    pmf = _band_pmf(lo, hi)
+    counts = _counts_with(pmf)
+    exact = _exact_shares(pmf, 100, 10)
+    quartic = np.abs(digits.expected_shares_after_cut(counts, 100, 10) - exact).max()
+    quadratic = np.abs(_quadratic_shares(counts, 100, 10) - exact).max()
+    assert quartic < 0.5 * quadratic, (quartic, quadratic)
+
+
+def test_the_closed_form_is_the_sum_of_the_quartic_over_every_block():
+    """The docstring's telescoping, checked by brute force: build the quartic within every block
+    from its five block totals, add up each ending over all blocks from the cut up, and compare
+    with the closed form that keeps only the four blocks around the cut. The two empty blocks
+    past the last count belong in the sum: their quartics reach back to it."""
+    rng = np.random.default_rng(4)
+    for period, min_count, centre in ((10, 100, 4.7), (100, 1000, 6.9), (10, 105, 4.7)):
+        counts = np.rint(rng.lognormal(centre, 0.5, 20_000))
+        weights = digits._quartic_weights(period)
+        top = int((counts.max() - min_count) // period) + 1
+        # totals[k] is block k - 2, out to block top + 3, so every window below is complete.
+        totals = digits._block_totals(counts, min_count, period, -2, top + 4)
+        by_position = np.zeros(period)
+        for j in range(top + 2):
+            by_position += totals[j : j + 5] @ weights
+        position = (np.arange(period) - min_count) % period
+        brute = by_position[position] / (counts >= min_count).sum()
+        closed = digits.expected_shares_after_cut(counts, min_count, period)
+        assert closed == pytest.approx(brute, abs=1e-12)
+
+
 def test_expected_shares_are_uniform_when_nothing_sits_near_the_cut():
     counts = np.arange(1000, 3000, dtype=float)
-    shares, below, first = digits.expected_shares_after_cut(counts, 100, 10)
-    assert (below, first) == (0, 0)
+    shares = digits.expected_shares_after_cut(counts, 100, 10)
     assert shares == pytest.approx(np.full(10, 0.1))
 
 
 def test_invented_last_digits_do_not_move_the_expected_shares():
-    """The correction rests on how many counts sit in each ten, which inventing a last digit
-    does not change, so it cannot absorb the signal the check exists for."""
+    """The correction and the shape check both rest on how many counts sit in each ten, which
+    inventing a last digit does not change, so neither can absorb the signal the check exists
+    for, nor be tripped by it."""
     clean = near_the_cut_election(n=4000, seed=3)
     dirty = with_invented_last_digits(clean, fraction=0.3, column="party_minor")
     a = last_digit_uniformity(clean["party_minor"].to_numpy(float), n_boot=0)
     b = last_digit_uniformity(dirty["party_minor"].to_numpy(float), n_boot=0)
     assert a.details["expected_proportions"] == b.details["expected_proportions"]
+    assert a.details["shape_disagreement"] == b.details["shape_disagreement"]
 
 
 def test_invented_digits_are_still_found_where_the_correction_is_largest():
@@ -222,6 +349,27 @@ def test_counts_piled_at_the_cut_are_underpowered_not_tested():
     assert "too close to the cut" in f.title
 
 
+def test_counts_narrower_than_a_block_are_refused_and_the_limit_moves_with_the_sample():
+    """#25: honest counts spread by five votes cannot have their endings' null pinned down by
+    whole blocks of ten, and are refused at 4,000 counts. Counts spread by seven are tested at
+    4,000, where the doubt about the shares is small against sampling noise, and refused at
+    20,000, where it is not."""
+    narrow = np.rint(np.random.default_rng(1).normal(110, 5, 4000))
+    f = last_digit_uniformity(narrow, n_boot=0)
+    assert _refused_by_the_shape_check(f), f.title
+    assert f.pvalue is None
+    assert f.details["shape_disagreement"] > MAX_SHAPE_DISAGREEMENT
+
+    # Far from the cut too: every count in one block of ten, even with perfectly even endings.
+    spike = np.array([1000 + d for d in range(10)] * 40, dtype=float)
+    assert _refused_by_the_shape_check(last_digit_uniformity(spike, n_boot=0))
+
+    for n, refused in ((4000, False), (20_000, True)):
+        counts = np.rint(np.random.default_rng(1).normal(105, 7, n))
+        f = last_digit_uniformity(counts, n_boot=0)
+        assert _refused_by_the_shape_check(f) is refused, (n, f.title)
+
+
 def test_the_repeated_pair_share_barely_moves_at_the_default_cut():
     """The comment on last_two_digit_pairs' effect says the cut moves the expected repeated
     share by less than 0.0001 at 1000, so the effect still reads as an excess over 0.10."""
@@ -244,6 +392,16 @@ def test_the_cut_confound_names_the_truncation_not_a_control():
     assert "min_count" in first and "cut" in first and "uneven" in first
 
 
+def test_the_contribution_template_does_not_teach_the_old_confound():
+    """The template is the worked example CONTRIBUTING.md points new checks at, and it carried
+    the same sentence."""
+    from psephos.methods._template import CONFOUNDS
+
+    text = " ".join(CONFOUNDS)
+    assert "controls this" not in text
+    assert any("min_count" in c and "cut" in c and "uneven" in c for c in CONFOUNDS)
+
+
 def test_a_flagged_finding_reads_against_the_cut_not_a_flat_uniform():
     """The title's comparison is the honest shares after the cut, which a minor party's
     counts make visibly uneven, not a flat 10 per cent."""
@@ -251,3 +409,18 @@ def test_a_flagged_finding_reads_against_the_cut_not_a_flat_uniform():
     f = last_digit_uniformity(frame["party_minor"].to_numpy(float), n_boot=0)
     assert f"counts below {MIN_COUNT_FOR_LAST_DIGIT} are left out" in f.title
     assert "genuinely uniform" not in f.title
+
+
+def test_the_noise_reference_is_drawn_from_the_expected_shares():
+    """The title compares the distance with what sampling noise gives; that noise is drawn
+    from the shares the distance is measured from, and from a flat uniform only when the cut
+    leaves the shares flat."""
+    frame = near_the_cut_election(n=4000, seed=3)
+    f = last_digit_uniformity(frame["party_minor"].to_numpy(float), n_boot=0)
+    shares = np.array(f.details["expected_proportions"])
+    assert np.abs(shares - 0.1).max() > 0.005
+    assert f.details["null_expected_tvd"] == expected_tvd(f.n_used, shares)
+    assert f.details["null_expected_tvd"] != expected_tvd_under_uniform(f.n_used, 10)
+
+    flat = last_digit_uniformity(np.arange(1000, 3000, dtype=float), n_boot=0)
+    assert flat.details["null_expected_tvd"] == expected_tvd_under_uniform(flat.n_used, 10)

@@ -46,10 +46,12 @@ interval = [q(alpha/2) - bias, q(1 - alpha/2) - bias]
 For the two effects that are means — the integer-percentage excess per unit, and the top-decile
 share gap — the shift is negligible and does nothing. It is in the code for the third.
 
-The last-digit effect is the total variation distance from uniform, a sum of absolute
+The last-digit effect is the total variation distance from the expected shares after the
+`min_count` cut (a flat 10 per cent when no counts sit near the cut), a sum of absolute
 deviations. Resampling adds noise to a histogram, and added noise can only push a sum of
-absolute deviations **up**. Measured across twenty clean synthetic elections and two contestant
-columns each:
+absolute deviations **up**, whatever the shares it is measured from. Measured across twenty
+clean synthetic elections and two contestant columns each, before the cut was allowed for and so
+against a flat uniform:
 
 - The bootstrap distribution sat above the estimate in **40 of 40 cases**.
 - The gap was **13 to 56 per cent of the interval's own width**, median 33 per cent.
@@ -87,19 +89,20 @@ is not zero and which falls as `1 / sqrt(n)`. Every `last_digit` finding carries
 ```
 Last digit of party_incumbent across 2638 units: most common 4 (10.8 per cent), least common 9
 (8.7 per cent); honest digits would be 9.9 to 10.1 per cent each, uneven only because counts
-below 100 are left out. Distance from honest digits 0.0156 [0.0030, 0.0296], against 0.0234
+below 100 are left out. Distance from honest digits 0.0157 [0.0030, 0.0297], against 0.0234
 from sampling noise alone at this sample size.
 ```
 
 That is `party_incumbent` of `clean_election(3000)`, with the registered voters as sizes.
-0.0156 against an expected 0.0234 is a dataset slightly *closer* to honest digits than chance
+0.0157 against an expected 0.0234 is a dataset slightly *closer* to honest digits than chance
 produces. A reader given only the first number and an interval excluding zero could have
 concluded the opposite.
 
 "Honest digits" are not quite a flat 10 per cent. The check keeps only counts of at least 100,
 and that cut by itself makes the endings just above it more common wherever many counts sit
 near it; the distance is measured from the shares that cut produces, as issue #25 found it
-must be. `psephos.methods.digits` has the derivation.
+must be, and the noise reference is drawn from those same shares. `psephos.methods.digits` has
+the derivation.
 
 ## Every check that reports an effect
 
