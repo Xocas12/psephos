@@ -37,7 +37,7 @@ except ImportError as exc:  # pragma: no cover - exercised by a test that hides 
 
 from psephos._types import AuditReport, Finding
 from psephos.audit import DEFAULT_THRESHOLDS
-from psephos.methods.digits import MIN_COUNT_FOR_LAST_DIGIT
+from psephos.methods.digits import MIN_COUNT_FOR_LAST_DIGIT, expected_shares_after_cut
 from psephos.methods.integer_pct import integer_excess
 from psephos.schema import ElectionData
 
@@ -280,12 +280,17 @@ def threshold_sweep(report: AuditReport) -> Plot | None:
 
 
 def last_digit_bars(data: ElectionData, *, min_count: int = MIN_COUNT_FOR_LAST_DIGIT) -> Plot:
-    """Last-digit frequencies for each contestant against the uniform 10 per cent.
+    """Last-digit frequencies for each contestant against the shares the check tests them on.
 
     Units are selected exactly as :func:`psephos.methods.digits.last_digit_uniformity` selects
-    them. The band is two standard errors of a uniform proportion at that sample size, so a bar
-    outside it is a departure noise would rarely produce in one digit, and with ten digits per
-    panel one bar outside it is unremarkable.
+    them, and the red marks are that check's null: the share each digit should get on honest
+    counts once counts below ``min_count`` are left out, from
+    :func:`psephos.methods.digits.expected_shares_after_cut`. That is a flat 10 per cent when no
+    counts sit near the cut and slopes down from digit 0 when many do, so drawing a flat line
+    would show an honest minor party's digits 0 and 9 outside the band while the check, rightly,
+    reports nothing. The band is two standard errors of each expected share at that sample
+    size, so a bar outside it is a departure noise would rarely produce in one digit, and with
+    ten digits per panel one bar outside it is unremarkable.
     """
     labels = list(data.columns.votes)
     cols = min(3, len(labels))
@@ -300,20 +305,32 @@ def last_digit_bars(data: ElectionData, *, min_count: int = MIN_COUNT_FOR_LAST_D
         digits = np.rint(x[usable]).astype(np.int64) % 10
         props = np.bincount(digits, minlength=10) / n if n else np.zeros(10)
         ax.bar(range(10), 100.0 * props, color="#3b6ea5")
+        expected = expected_shares_after_cut(x, min_count, 10) if n else np.full(10, 0.1)
         if n:
-            se = 100.0 * np.sqrt(0.1 * 0.9 / n)
-            ax.axhspan(10.0 - 2 * se, 10.0 + 2 * se, color="#999999", alpha=0.25, linewidth=0)
-        ax.axhline(10.0, color="#c0392b", linewidth=0.9)
+            se = np.sqrt(expected * (1.0 - expected) / n)
+            ax.bar(
+                range(10),
+                100.0 * 4 * se,
+                bottom=100.0 * (expected - 2 * se),
+                width=0.9,
+                color="#999999",
+                alpha=0.25,
+                linewidth=0,
+            )
+        ax.hlines(100.0 * expected, np.arange(10) - 0.45, np.arange(10) + 0.45, color="#c0392b")
         ax.set_xticks(range(10))
         ax.set_title(f"{label} (n={n})", fontsize=9)
         ax.set_ylabel("per cent", fontsize=8)
         counts.append(Count(label, n, int(usable.size - n), f"count below {min_count} or missing"))
     return _plot(
         "last_digit_bars",
-        "Last digits against uniform",
+        "Last digits against what honest counts give",
         fig,
-        "The red line is the uniform 10 per cent and the grey band two standard errors around "
-        "it. Invented numbers tend to be uneven; small or rounded counts are too.",
+        "Each red mark is the share that digit should get on honest counts once counts below "
+        f"{min_count} are left out, the null the last-digit check tests: 10 per cent each when "
+        "no counts sit near that cut, more for the low digits when many do. The grey band is "
+        "two standard errors around it. Invented numbers tend to be uneven; rounded counts are "
+        "too.",
         counts,
     )
 

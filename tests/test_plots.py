@@ -85,6 +85,27 @@ def test_last_digit_bars_use_the_units_each_digit_check_used(messy_data, messy_r
     assert by_label["party_third"].n_excluded > 0
 
 
+def test_last_digit_bars_draw_the_shares_the_check_tests_against():
+    """#25: the reference marks are the check's own null, not a flat 10 per cent. On a minor
+    party just above the cut that null slopes down from digit 0, and a flat line would put
+    honest digits outside the band while the check reports nothing."""
+    from conftest import near_the_cut_election
+
+    from psephos.methods.digits import last_digit_uniformity
+
+    frame = near_the_cut_election(n=4000, seed=3)
+    cmap = ColumnMap(votes={c: c for c in ("party_major", "party_minor")})
+    plot = last_digit_bars(ElectionData(frame=frame, columns=cmap, source="near-the-cut"))
+    finding = last_digit_uniformity(frame["party_minor"].to_numpy(float), n_boot=0)
+    expected = np.array(finding.details["expected_proportions"])
+    assert np.abs(expected - 0.1).max() > 0.005, "the fixture should make the null uneven"
+    [ax] = [a for a in plot.figure.axes if a.get_title().startswith("party_minor")]
+    [marks] = ax.collections
+    heights = np.array([segment[0][1] for segment in marks.get_segments()])
+    assert heights == pytest.approx(100.0 * expected)
+    assert "the null the last-digit check tests" in plot.caption
+
+
 def test_threshold_sweep_plots_every_sweep_finding_and_no_stratum(messy_report):
     plot = threshold_sweep(messy_report)
     sweep = [
