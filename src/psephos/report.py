@@ -84,8 +84,7 @@ def _interval_lines(report: AuditReport) -> list[str]:
     """What the bracketed numbers beside each effect are, and what they are not.
 
     Not optional and with no flag to suppress it, like the sections it sits beside. An interval
-    is the most misreadable number in the output: it looks like a test, it is not one, and for a
-    statistic that cannot be negative it excludes zero on perfectly honest data.
+    is the most misreadable number in the output: it looks like a test, and it is not one.
     """
     ci = report.meta.get("intervals")
     if not ci or not ci.get("n_findings_with_ci"):
@@ -93,9 +92,11 @@ def _interval_lines(report: AuditReport) -> list[str]:
     out = ["", "EFFECT INTERVALS"]
     out.append(
         f"  The bracketed range beside each effect is a {100 * ci['level']:.0f} per cent "
-        f"percentile bootstrap interval, from {ci['n_boot']} resamples of the precincts within "
-        "size bands. It holds the precinct-size mix at the one observed, because a whole-number "
-        "percentage is common by arithmetic in a small station and rare in a large one."
+        f"interval from {ci['n_boot']} resamples of the precincts within size bands: a "
+        "percentile bootstrap for the shares and means, and for the last-digit distance a bound "
+        "on what counting noise can do to it. The bands hold the precinct-size mix at the one "
+        "observed, because a whole-number percentage is common by arithmetic in a small station "
+        "and rare in a large one."
     )
     out.append(
         "  It says how precisely the effect is measured, which is why it is printed first: the "
@@ -104,10 +105,11 @@ def _interval_lines(report: AuditReport) -> list[str]:
     )
     out.append(
         "  It is NOT a second test. The p-value beside it is the test, against a stated null. "
-        "An interval that excludes zero adds nothing to it, and an effect that cannot be "
-        "negative -- a distance from uniform, for instance -- has an interval that never "
-        "contains zero however honest the data; compare those against the expected value under "
-        "the null, which the finding carries."
+        "An interval that excludes zero adds nothing to it. The last-digit distance from "
+        "uniform is printed less what counting noise adds to it, and its interval is for the "
+        "distance itself, so it reaches zero when the digits are consistent with uniform; the "
+        "distance as counted, and what uniform digits count at that sample size, are in the "
+        "finding."
     )
     out.append(
         "  It covers uncertainty about which precincts were drawn, and nothing else. It does "

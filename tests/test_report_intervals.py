@@ -59,9 +59,10 @@ def test_the_interval_section_says_it_is_not_a_test():
     assert "NOT a second test" in text
     assert "1000 resamples" in text
     assert "95 per cent" in text
-    # The two misreadings the section exists to block.
-    assert "never contains zero" in text
+    # The two misreadings the section exists to block. The second used to be blocked with the
+    # claim that a distance's interval could not reach zero, which was false (issue #29).
     assert "null model is wrong" in text
+    assert "reaches zero when the digits are consistent with uniform" in text
 
 
 def test_the_interval_section_is_absent_when_nothing_carried_an_interval():

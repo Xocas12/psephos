@@ -153,7 +153,7 @@ PY
 ```
 
 ```text
-flag=ok p=0.749 effect=0.0171
+flag=ok p=0.749 effect=0.0034
 ```
 
 Same data, same family, same chi-square construction, opposite verdict. The difference is not

@@ -22,29 +22,28 @@ from and leaves the interval measuring what it should.
 
 What the interval is
 --------------------
-The percentile bootstrap, shifted by the bootstrap estimate of its own bias: resample,
-recompute, take the empirical quantiles, and subtract ``mean(resamples) - estimate`` from both
-ends.
+For the effects that are means and shares, :func:`bootstrap_ci`: the percentile bootstrap,
+shifted by the bootstrap estimate of its own bias. Resample, recompute, take the empirical
+quantiles, and subtract ``mean(resamples) - estimate`` from both ends. For a mean the shift is
+negligible and does nothing; it stays as a guard, and if it cannot make the interval contain the
+estimate, no interval is reported and the finding says why.
 
-The bias term is not a refinement. Two of the three effects here are means, where it is
-negligible and the correction does nothing. The third, the last digits' total variation
-distance from uniform, is a sum of absolute deviations, and resampling adds noise that can only
-push a sum of absolute deviations up. Measured on this repository's own clean generator, the
-bootstrap distribution of that distance sits 26 to 118 per cent of the estimate above it at
-sample sizes between 500 and 32,000, and the bias does not shrink away. The plain percentile
-interval therefore sits above the point estimate and sometimes excludes it outright, which is
-not a defect worth shipping: an interval that does not contain the number it is an interval for
-tells a reader something false in the most direct way available. If the shift cannot make it
-contain the estimate, no interval is reported and the finding says why.
+The last digits' total variation distance from uniform does not go through it. A distance is a
+sum of absolute deviations, and counting noise can only push one up: the distance counted on
+perfectly uniform digits is about ``1.2 / sqrt(n)``, not zero. The plain percentile interval sat
+above its own estimate and sometimes excluded it, which is why the shift was added; but the
+shift only re-centres the interval on the estimate, and the estimate is the biased number. The
+shifted interval covered the value the counted distance takes at that sample size, not the
+distance, and covered a true distance of zero in 0 to 3 per cent of draws (issue #29).
+:func:`distance_interval` reports the distance less its noise, with an interval that bounds the
+true distance from each side by what counting noise can do to the counted one.
 
 Two further consequences a reader has to know, and which the findings state in their own
 details:
 
 - **An interval that excludes zero is not a test.** The p-value in the same finding is the test,
   computed against a stated null. The interval says how precisely the effect is measured, and
-  those are different questions. For a statistic that cannot be negative — a total variation
-  distance, for instance — the interval never contains zero even on perfectly honest data, so
-  reading it as a test would flag every election ever held.
+  those are different questions.
 - **The interval is about sampling the precincts, not about the null.** It does not widen to
   cover the possibility that the null model is wrong, which is the dominant uncertainty in this
   whole tool, and no interval can.
@@ -55,14 +54,18 @@ extension, resampling within strata at their observed sizes. The bias shift is t
 first-order correction, not the accelerated interval of Efron (1987): BCa would also handle the
 skewness and is the better instrument, and it is not used here because its acceleration term
 needs a jackknife over units, which is a second pass whose cost and whose behaviour on a
-boundary statistic are worth measuring before adopting rather than assuming.
+boundary statistic are worth measuring before adopting rather than assuming. The distance
+interval needs no reference beyond the triangle inequality and the standard deviation of a
+binomial share; :func:`distance_interval` has the argument.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
+from statistics import NormalDist
 
 import numpy as np
+from scipy import stats
 
 from psephos.size import DEFAULT_EDGES
 
@@ -268,16 +271,178 @@ def bootstrap_ci(
     return lo, hi, details
 
 
+def tvd_noise_bias(observed: np.ndarray, reference: np.ndarray) -> float:
+    """How much counting noise adds, on average, to a total variation distance at these shares.
+
+    The expected distance from ``reference`` of a histogram of the same size drawn at the
+    observed shares, less the observed distance: the bootstrap's estimate of the bias, computed
+    exactly instead of by resampling. Each cell's count in such a draw is binomial, and the
+    distance is a sum over cells, so the expectation is a sum of binomial mean absolute
+    deviations, using ``|X - c| = (X - c) + 2 * max(c - X, 0)``.
+
+    Exact and seedless on purpose. The effect is this distance less this bias, and an effect that
+    moved with the resampling seed, or vanished with ``--no-intervals``, would be a worse number
+    than the biased one it replaces.
+    """
+    obs = np.asarray(observed, dtype=float)
+    ref = np.asarray(reference, dtype=float)
+    n = float(obs.sum())
+    if n <= 0:
+        return float("nan")
+    expected_abs = 0.0
+    for count, share in zip(obs, ref, strict=True):
+        c = share * n
+        below = np.arange(int(np.ceil(c)))
+        tail = float(((c - below) * stats.binom.pmf(below, int(n), count / n)).sum())
+        expected_abs += (count - c) + 2.0 * tail
+    observed_tvd = float(0.5 * np.abs(obs / n - ref).sum())
+    return 0.5 * expected_abs / n - observed_tvd
+
+
+def distance_interval(
+    cells: np.ndarray,
+    reference: np.ndarray,
+    *,
+    sizes: np.ndarray | None = None,
+    edges: Sequence[float] = DEFAULT_EDGES,
+    n_boot: int = DEFAULT_N_BOOT,
+    level: float = 0.95,
+    seed: int | None = None,
+) -> tuple[float, float | None, float | None, dict[str, object]]:
+    """A total variation distance from ``reference``, less its noise, with an interval that
+    covers the true distance.
+
+    ``cells`` holds one cell index per unit (a last digit, say) and ``reference`` the share each
+    cell should get. Returns ``(effect, ci_low, ci_high, details)``: the counted distance less
+    :func:`tvd_noise_bias`, floored at zero, and an interval for the distance between the shares
+    the units were drawn from and ``reference``. ``(effect, None, None, details)`` when no
+    interval was computed, with ``details["ci_note"]`` saying why.
+
+    Why not :func:`bootstrap_ci`. The counted distance ``T`` sits above the true distance
+    ``theta`` by about what counting noise adds, which at ``theta = 0`` is 0.038 at 1,000 units.
+    A percentile bootstrap shifted by its own bias is centred on ``T``, so it covers the value
+    ``T`` takes on average at this sample size, not ``theta``: on last digits with a known
+    distance, at 1,000 and 4,000 units, it covered ``theta`` in 0 to 3 per cent of draws at
+    ``theta = 0`` and in 10 to 33 per cent with the departure on two digits (issue #29). The
+    basic bootstrap, centred on ``2 T - mean(T*)``, did better and still covered only 58 to 60
+    per cent at ``theta = 0`` and 70 to 92 per cent from 0.01 to 0.04, because the bootstrap
+    estimates the bias at the observed shares, where no cell sits exactly on its reference, and
+    the bias is largest where cells do.
+
+    The construction. ``theta`` is the largest ``p(B) - r(B)`` over sets of cells ``B``, reached
+    at ``A``, the cells above their reference; ``T`` is the same with the observed shares.
+
+    - Above. ``T`` is at least ``phat(A) - r(A)``, so ``theta - T`` is at most
+      ``p(A) - phat(A)``: one share's sampling error, whose standard deviation is at most
+      ``1 / (2 sqrt(n))`` whatever ``A`` is. The upper end is ``T`` plus the normal quantile
+      times that.
+    - Below. ``T - theta`` is at most the distance between the observed and the true shares,
+      which is exactly ``T`` when ``theta`` is zero. Its quantile is taken from resamples of the
+      units within size bands, as the distance between each resample's shares and the observed
+      ones. The lower end is ``T`` less that quantile, floored at zero.
+
+    Each end misses with probability at most ``(1 - level) / 2``, so the interval covers
+    ``theta`` with at least ``level`` whatever the shares are, and it reaches zero whenever the
+    data are consistent with ``reference``. It is wider than the shifted interval, 0.069 against
+    0.046 on uniform digits at 1,000 units, because the lower end has to allow for the case
+    where most of the counted distance is noise. Measured coverage was 96 to 100 per cent from
+    ``theta = 0`` to 0.08 at 1,000, 4,000 and 20,000 units, with the departure spread or on two
+    digits, 200 draws a cell.
+
+    Resamples are drawn as one multinomial per size band, at the band's own count and shares,
+    which is the same distribution as resampling the band's units with replacement and recounting
+    their cells, without materialising ``n_boot * n_units`` indices.
+    """
+    if not 0.0 < level < 1.0:
+        raise ValueError(f"level must be in (0, 1); got {level}")
+    ref = np.asarray(reference, dtype=float)
+    k = ref.size
+    cells = np.asarray(cells, dtype=np.intp)
+    n = int(cells.size)
+    if n == 0:
+        raise ValueError("no units to measure a distance on")
+    observed = np.bincount(cells, minlength=k).astype(float)
+    if observed.size != k:
+        raise ValueError(f"cells must index the {k} reference shares; got index {cells.max()}")
+    props = observed / n
+    tvd = float(0.5 * np.abs(props - ref).sum())
+    bias = tvd_noise_bias(observed, ref)
+    effect = max(0.0, tvd - bias)
+    details: dict[str, object] = {"tvd_as_counted": tvd, "tvd_noise_bias": bias}
+
+    if n_boot <= 0:
+        details["ci_note"] = "intervals disabled (n_boot=0)"
+        return effect, None, None, details
+    if n < MIN_UNITS_FOR_INTERVAL:
+        details["ci_note"] = (
+            f"no interval: {n} units is below the {MIN_UNITS_FOR_INTERVAL} this would need to "
+            "mean anything"
+        )
+        return effect, None, None, details
+
+    codes = stratum_codes(sizes, n, edges)
+    rng = np.random.default_rng(seed)
+    resampled = np.zeros((n_boot, k))
+    for code in np.unique(codes):
+        members = cells[codes == code]
+        band = np.bincount(members, minlength=k)
+        resampled += rng.multinomial(members.size, band / members.size, size=n_boot)
+    noise = 0.5 * np.abs(resampled / n - props).sum(axis=1)
+
+    alpha = 1.0 - level
+    below = float(np.quantile(noise, 1.0 - alpha / 2.0))
+    above = NormalDist().inv_cdf(1.0 - alpha / 2.0) * 0.5 / np.sqrt(n)
+    lo, hi = max(0.0, tvd - below), tvd + above
+    # The effect sits inside by construction: the bias is at most the mean of the same noise
+    # whose upper quantile sets the lower end. Only a size banding that leaves almost no noise
+    # in the resamples could break that, and a lower end moved down is still a valid one.
+    lo = min(lo, effect)
+
+    n_strata = int(np.unique(codes[codes >= 0]).size)
+    stratified = sizes is not None and n_strata > 1
+    details.update(
+        {
+            "ci_level": level,
+            "ci_method": "noise-bounded interval for a total variation distance",
+            "ci_noise_quantile": below,
+            "ci_upper_margin": float(above),
+            "ci_reaches_zero": lo == 0.0,
+            "ci_n_boot": n_boot,
+            "ci_n_strata": n_strata,
+            "ci_stratified_by": "precinct size" if stratified else None,
+            "ci_resamples_used": n_boot,
+            "ci_seed": seed,
+            "ci_note": (
+                "An interval for the distance itself, not for the value the counted distance "
+                "takes at this sample size, so it reaches zero when the data are consistent "
+                "with the reference shares. Its lower end allows for as much counting noise as "
+                "resampling the units within size bands produces, its upper end for one share's "
+                "sampling error. It is NOT a test: the p-value beside it is the test."
+            ),
+        }
+    )
+    if sizes is None:
+        details["ci_note"] += (
+            " This check's inputs carry no precinct size, so the resample is unstratified."
+        )
+    elif not stratified:
+        details["ci_note"] += (
+            f" Every unit here falls in one size band, so the resample is unstratified in "
+            f"effect: {n_strata} band, nothing to hold fixed."
+        )
+    return effect, lo, hi, details
+
+
 def expected_tvd_under_uniform(
     n_used: int, n_cells: int = 10, *, n_sim: int = 400, seed: int = 0
 ) -> float:
     """Total variation distance from uniform that honest data of this size produces anyway.
 
-    A total variation distance is non-negative, so its interval never contains zero and
-    excluding zero means nothing. What a reader needs instead is the value the statistic takes
-    when nothing is wrong, which is not zero and which shrinks as ``1 / sqrt(n)``. Simulated
-    rather than taken from the normal approximation, because at the cell counts and sample
-    sizes here the approximation is worth less than 400 multinomial draws cost.
+    Counting noise alone keeps the counted distance above zero on perfectly uniform digits, at
+    about this value, which shrinks as ``1 / sqrt(n)``. Printed beside the counted distance so a
+    reader can see how much of it noise accounts for. Simulated rather than taken from the
+    normal approximation, because at the cell counts and sample sizes here the approximation is
+    worth less than 400 multinomial draws cost.
     """
     if n_used <= 0:
         return float("nan")
