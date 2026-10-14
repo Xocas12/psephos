@@ -1,9 +1,9 @@
 """The four pictures the text report argues from.
 
 A z-score asks the reader to trust it. A picture lets the reader check it: the sawtooth in a
-fine turnout histogram is visible or it is not, and a signal that dies as the size threshold
-rises is a small-precinct artefact the moment it is drawn. These plots exist so that a reader can
-look at the thing a statistic summarises.
+fine turnout histogram is visible or it is not, and the sweep shows at a glance which precinct
+sizes an excess lives in. These plots exist so that a reader can look at the thing a statistic
+summarises.
 
 Two rules, enforced by :class:`Plot` rather than by convention:
 
@@ -267,9 +267,11 @@ def threshold_sweep(report: AuditReport) -> Plot | None:
     ax.legend(fontsize=8)
 
     description = (
-        "A signal that shrinks toward zero as the threshold rises lives in small precincts, "
-        "where whole-number percentages are arithmetic; one that holds at the strictest "
-        "threshold does not."
+        "Each point is tested against noise at every precinct's own size, so whole-number "
+        "percentages that size alone produces are already expected. The sweep shows where the "
+        "excess sits: one that shrinks toward zero as the threshold rises sits in the smaller "
+        "precincts the higher thresholds drop, and is still an excess there; one that holds at "
+        "the strictest threshold sits in the large ones."
     )
     if skipped:
         description += f" Not drawn, too few units to test: {', '.join(skipped)}."

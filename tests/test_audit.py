@@ -180,8 +180,10 @@ def test_audit_of_rounded_data_flags_the_percentage_family(clean_df, column_map)
     rep = audit(dirty, n_mc=200, seed=0)
     checks = {f.check for f in rep.flagged}
     assert "integer_percentage" in checks
-    # The signal must survive raising the size threshold, which is what separates it from an
-    # artefact of small precincts.
+    # with_rounded_turnout rounds precincts of every size, so the excess has to show at the
+    # strictest threshold as well. That is a check on where the rounding is, not on whether it
+    # is real: an excess confined to smaller precincts would fade here and still be an excess
+    # (tests/test_small_precincts.py).
     strict = [
         f
         for f in rep.flagged

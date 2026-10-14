@@ -43,9 +43,12 @@ p-value is only meaningful against a null the reader can see without reading you
 Every flagged finding must name the innocent explanations that produce the same signal. This is
 not a convention; it is enforced in code: `Finding.__post_init__` in
 [src/psephos/_types.py](src/psephos/_types.py) raises if a finding flagged `notable` or `strong`
-carries no confounds. Name the real confounds, not ceremonial ones. If the check touches a
-percentage, one of them will be precinct size, and the confound should say how the check
-controls for it.
+carries no confounds. Name the real confounds, not ceremonial ones: each one has to be a
+mechanism that can move the statistic in the direction that flags, under the check's own null.
+If the check touches a percentage, say how it handles precinct size. If its null ignores size,
+size is a confound and the confound should say how the check controls for it. If its null holds
+each unit's size fixed, as the integer-percentage check's does, size is already in the expected
+value and is not an explanation for an excess, so do not print it as one.
 
 ### 3. A quiet test
 

@@ -26,8 +26,9 @@ a simplification of a real electoral process.
 
 Every check here has innocent explanations, and psephos prints them with each finding. They are
 not boilerplate. Turnout genuinely correlates with partisanship in most countries. Vote counts
-genuinely get rounded during aggregation in some administrations. Small precincts genuinely
-produce round percentages.
+genuinely get rounded during aggregation in some administrations. Some figures genuinely are
+estimates, or were back-calculated from a rounded percentage somewhere between the polling
+station and your file.
 
 The question a finding raises is "what produced this?", and fraud is one candidate answer that
 has to compete with the others on evidence about how that election was actually administered.
@@ -43,9 +44,23 @@ lands on one by chance. So any test for "too many round percentages" that pools 
 together is partly measuring how many small stations a country has, which is a fact about its
 geography and its rules on institutional voting, not about its honesty.
 
-psephos excludes small units, reports how many it excluded, and runs the check across several
-thresholds. **Look at the sweep.** A real rounding signal survives raising the threshold. An
-artefact of small precincts dies.
+psephos handles this in the null rather than in the reading. Its integer-percentage check
+compares each station against binomial noise at that station's own size, so a 100-voter station
+is expected to land on a whole number every time and a 200-voter station half the time, and a
+country full of small stations does not flag for having them. Small stations do not push the
+check up. Where the null fits them badly, at turnout close to 100 per cent as in some
+institutional precincts, it expects more whole numbers than honest stations produce, so they
+push it down.
+
+psephos also excludes the smallest units, reports how many it excluded, and runs the check
+across several thresholds. The exclusion is about power, not false alarms: below about 250
+voters, rounding barely changes how often a station lands on a whole number, so those stations
+mostly dilute the test. **Look at the sweep, and read it as a map.** It shows where in the size
+range the excess sits. It is not what separates rounding from arithmetic; the null at every
+threshold already does that, by holding station size fixed. An excess that fades as the
+threshold rises is an excess in the smaller stations the higher thresholds drop, which is where
+rounding is often alleged, and it needs explaining like any other. One that holds at the
+strictest threshold sits in the large stations.
 
 ### 3. Analysing one election with no baseline
 

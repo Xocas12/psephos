@@ -87,5 +87,6 @@ def size_warning(denominators: np.ndarray, min_denominator: int) -> str | None:
     return (
         f"{small} of {total} units ({pct:.1f} per cent) have fewer than {min_denominator} "
         "registered voters and are excluded from percentage-based checks, because at that "
-        "size round percentages arise by arithmetic."
+        "size rounding barely changes how often a percentage lands on a whole number, so those "
+        "units would dilute the test rather than inform it."
     )
