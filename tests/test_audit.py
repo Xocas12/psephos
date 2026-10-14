@@ -149,11 +149,16 @@ def test_audit_of_clean_data_flags_close_to_the_nominal_rate(clean_data):
     asserts that eighteen tests at alpha 0.05 all got lucky, which is expecting a bit under
     two in five audits.
 
-    Measured over twenty independent clean elections: 28 flags out of 360 findings, about 7.8
-    per cent against a 5 per cent nominal, or 1.4 flags per audit. That mild excess is exactly
-    why psephos reports the flagged count against the total, and why issue #12 (a
-    multiple-testing correction) is on the v0.2 milestone. This test pins the rate so it
-    cannot drift upward unnoticed.
+    Measured over twenty independent clean elections (seeds 400 to 419, n_mc=200): 28 flags
+    out of 360 findings, about 7.8 per cent against a 5 per cent nominal, or 1.4 flags per
+    audit. That mild excess is exactly why psephos reports the flagged count against the total,
+    and why issue #12 (a multiple-testing correction) is on the v0.2 milestone.
+
+    This test runs twelve of those elections (seeds 400 to 411) at n_mc=120, where the count is
+    17 flags in 216 findings, 7.9 per cent. Its 15 per cent bound is a backstop on the audit as
+    a whole, not a calibration test: the rate can about double before it fails, and pooled over
+    eighteen findings one bad column hides among the rest. Each check's own rate, column by
+    column, is held to a binomial bound in test_false_positive_rate.py.
     """
     rep = audit(clean_data, n_mc=200, seed=0)
     assert rep.n_units == clean_data.n

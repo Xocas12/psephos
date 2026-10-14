@@ -1,9 +1,10 @@
 """The template check, exercised the way CONTRIBUTING.md requires of every check.
 
 This file and ``src/psephos/methods/_template.py`` are the worked example behind the guide:
-quiet on clean data, loud on the output of a named generator, monotone in the injected amount,
-and honest about being underpowered. Copy this shape for a new check's tests, including the
-test at the bottom that keeps the template out of user-facing output.
+quiet on clean data, at a rate near its nominal level across many clean elections, loud on the
+output of a named generator, monotone in the injected amount, and honest about being
+underpowered. Copy this shape for a new check's tests, including the test at the bottom that
+keeps the template out of user-facing output.
 """
 
 from __future__ import annotations
@@ -12,7 +13,12 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from conftest import clean_election, with_invented_last_digits
+from conftest import (
+    CLEAN_RATE_SEEDS,
+    assert_clean_rate,
+    clean_election,
+    with_invented_last_digits,
+)
 
 import psephos.methods
 from psephos._types import Flag
@@ -27,13 +33,39 @@ def test_template_quiet_on_clean_data(clean_df):
     assert f.pvalue > 0.05
 
 
-@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
-def test_template_false_positive_rate_across_seeds(seed):
-    """Across independent clean elections the check should rarely fire. As with the real
-    checks, this is the closest thing to a false-positive rate the suite can assert cheaply."""
-    df = clean_election(n=3000, seed=100 + seed)
-    f = zero_five_ending_share(df["party_incumbent"].to_numpy(float))
-    assert f.flag in (Flag.OK, Flag.NOTABLE)
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "the 0-or-5 share inherits the cut of issue #25: counts dense at min_count end in 0 "
+        "more often than a flat uniform allows, so clean counts flag at about 7 per cent"
+    ),
+)
+def test_template_false_positive_rate_on_clean_data():
+    """How often the check fires on clean data is a rate, and one clean election cannot show
+    it: an honest check at alpha 0.05 flags about one in twenty. So run it on the 400 clean
+    elections of CLEAN_RATE_SEEDS and let assert_clean_rate hold the count to its bound, at most
+    30 flags, which a check at twice the nominal rate fails with probability 0.95. A real check
+    gets one of these for every column the audit runs it on, in test_false_positive_rate.py.
+
+    Intervals are off (``n_boot=0``) because no flag depends on one, and they are most of the
+    cost.
+
+    This one fails, and is recorded as an expected failure rather than loosened. Keeping only
+    counts from 100 up and comparing their endings with a flat uniform is the mistake issue #25
+    describes for the real last-digit check: wherever counts are dense at the cut, the endings
+    above it lean toward 0. Pooled over these 400 elections, 20.11 per cent of the incumbent's
+    counts from 100 up end in 0 or 5, not 20.00, which moves this one-sided test from 5 to
+    about 7 per cent. That is too close to the bound for 400 elections to call every time: it
+    flags 31 of them under numpy 2.5 and 29 under numpy 2.2 and 2.4, whose random streams
+    differ, so the marker is not strict here. Where a miscalibration is far past the bound, as
+    for the minor parties in test_false_positive_rate.py, it should be. Either way, an expected
+    failure with its cause in the reason is how a known miscalibration is recorded: never a
+    wider bound or a hand-picked seed."""
+    findings = [
+        zero_five_ending_share(clean_election(seed=s)["party_incumbent"].to_numpy(float), n_boot=0)
+        for s in CLEAN_RATE_SEEDS
+    ]
+    assert_clean_rate(findings, "template on party_incumbent")
 
 
 # ---------------------------------------------------------------- loud

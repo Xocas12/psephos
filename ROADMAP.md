@@ -91,8 +91,9 @@ Seven things, and a check missing any of them will not be merged. The full versi
 
 1. A null stated in one sentence.
 2. A confounds list. Not optional: `Finding.__post_init__` raises without it.
-3. **A quiet test.** The check must not fire on `clean_election()`. This is the one most often
-   skipped and the one that matters most.
+3. **A quiet test.** The check must not fire on `clean_election()`, and over 400 clean
+   elections it must flag near its nominal rate on every column it runs on. This is the one
+   most often skipped and the one that matters most.
 4. A loud test, where the measured effect rises with the injected amount.
 5. An interval on the effect, resampling units within size bands. Also not optional:
    `Finding.__post_init__` raises on an interval that does not contain its own effect.
