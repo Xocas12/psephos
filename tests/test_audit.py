@@ -10,7 +10,7 @@ import pytest
 from conftest import clean_election, with_rounded_turnout
 
 from psephos._types import Finding, Flag
-from psephos.audit import audit
+from psephos.audit import DEFAULT_THRESHOLDS, audit
 from psephos.cli import main as cli_main
 from psephos.integrity import run_integrity
 from psephos.report import INTERPRETATION, to_json, to_text
@@ -197,11 +197,93 @@ def test_audit_runs_the_threshold_sweep(clean_data):
     assert any("min_denominator=500" in s for s in slices)
 
 
-def test_audit_without_registered_says_what_is_missing(clean_df):
-    cmap = ColumnMap(votes={"party_incumbent": "party_incumbent"})
-    rep = audit(ElectionData(frame=clean_df, columns=cmap), n_mc=50)
+PARTIES = ("party_incumbent", "party_second", "party_third")
+
+
+def _no_registered(df: pd.DataFrame) -> ElectionData:
+    """Vote columns and ballots cast, no electorate: the shape of many published files."""
+    cmap = ColumnMap(votes={c: c for c in PARTIES}, ballots_cast="ballots_cast")
+    return ElectionData(frame=df, columns=cmap, source="no-registered")
+
+
+def _share_sweep(rep) -> list[Finding]:
+    prefix = f"{rep.meta['winner']} share, min_denominator="
+    return [f for f in rep.findings if f.slice_name.startswith(prefix)]
+
+
+def test_audit_without_registered_still_runs_the_share_sweep(clean_df, column_map):
+    """Issue #33. The winner's-share percentage is the winner's votes over the contestant sum,
+    and its interval is stratified by that same sum, so it never reads the registered column.
+    Without one the audit must still run all four thresholds, and get the numbers it gets
+    with one."""
+    settings = {"n_mc": 50, "n_boot": 40, "seed": 0, "by_size": False}
+    rep = audit(_no_registered(clean_df), **settings)
+    sweep = _share_sweep(rep)
+    assert [f.details.get("min_denominator") for f in sweep] == list(DEFAULT_THRESHOLDS)
+    assert all(f.check == "integer_percentage" for f in sweep)
+    assert all(f.flag is not Flag.NOT_APPLICABLE for f in sweep), [f.title for f in sweep]
+
+    with_reg = _share_sweep(audit(ElectionData(frame=clean_df, columns=column_map), **settings))
+    for a, b in zip(sweep, with_reg, strict=True):
+        assert (a.slice_name, a.statistic, a.pvalue, a.effect, a.ci_low, a.ci_high) == (
+            b.slice_name,
+            b.statistic,
+            b.pvalue,
+            b.effect,
+            b.ci_low,
+            b.ci_high,
+        )
+
+
+def test_audit_without_registered_names_only_the_turnout_checks_as_skipped(clean_df):
+    """Issue #33. The old sentence said no percentage check could run, which was false for the
+    share, and the default report prints no unflagged finding, so nothing contradicted it."""
+    rep = audit(_no_registered(clean_df), n_mc=50, n_boot=0, seed=0)
+    winner = rep.meta["winner"]
     na = [f for f in rep.findings if f.flag is Flag.NOT_APPLICABLE]
-    assert any("registered-voters column" in f.title for f in na)
+    assert len(na) == 1, [f.title for f in na]
+    title = na[0].title
+    assert "registered-voters column" in title
+    assert "no percentage check" not in title
+
+    # The list after "cannot run:" up to the end of that sentence is what was skipped. Every
+    # item in it is a turnout check, and all three turnout checks are in it.
+    skipped = title.split("cannot run: ", 1)[1].split(". ", 1)[0]
+    items = [s.removeprefix("and ").strip() for s in skipped.split(", ")]
+    assert len(items) == 3, items
+    assert all("turnout" in s for s in items), items
+    assert "turnout percentages" in items[0] and "within size bands" in items[0]
+    assert items[1] == f"the dependence of {winner}'s share on turnout"
+    assert items[2] == "the turnout distribution"
+    # And the share is said to have been tested, not skipped.
+    assert f"percentages of {winner}'s share need only the contestant columns" in title
+    assert "still tested" in title
+
+
+def _with_rounded_winner_share(df: pd.DataFrame, *, n_units: int = 800, seed: int = 7):
+    """Move the winner's share of valid votes onto a whole-number percentage in some units,
+    holding the valid total fixed by taking the difference from the runner-up."""
+    out = df.copy()
+    rng = np.random.default_rng(seed)
+    idx = out.index[rng.choice(len(out), size=n_units, replace=False)]
+    win = out.loc[idx, "party_incumbent"].to_numpy(dtype=float)
+    second = out.loc[idx, "party_second"].to_numpy(dtype=float)
+    valid = out.loc[idx, list(PARTIES)].sum(axis=1).to_numpy(dtype=float)
+    target = np.rint(np.round(100.0 * win / valid) * valid / 100.0)
+    ok = second - (target - win) >= 0
+    out.loc[idx, "party_incumbent"] = np.where(ok, target, win).astype(int)
+    out.loc[idx, "party_second"] = np.where(ok, second - (target - win), second).astype(int)
+    return out
+
+
+def test_audit_without_registered_flags_a_rounded_share(clean_df):
+    """Issue #33. Before the fix this audit reported one not-applicable finding for the whole
+    integer-percentage family and nothing flagged, on data with a STRONG share signal."""
+    rep = audit(_no_registered(_with_rounded_winner_share(clean_df)), n_mc=100, n_boot=0, seed=0)
+    sweep = _share_sweep(rep)
+    assert len(sweep) == len(DEFAULT_THRESHOLDS)
+    assert all(f.flag is Flag.STRONG for f in sweep), [f.title for f in sweep]
+    assert {f.slice_name for f in sweep} <= {f.slice_name for f in rep.flagged}
 
 
 def test_audit_never_raises_on_a_broken_check(clean_df, column_map, monkeypatch):
