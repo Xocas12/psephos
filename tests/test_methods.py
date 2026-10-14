@@ -176,6 +176,85 @@ def test_turnout_dependence_finds_stuffing(clean_df, column_map):
     assert f.confounds
 
 
+def _share_moving_with_turnout(slope: float, *, n: int = 3000, seed: int = 0):
+    """Honest precincts whose leader's rate moves with turnout by ``slope``.
+
+    Nothing is added to anyone's pile: every count is a binomial draw around a rate that tilts
+    with turnout, the way geography or mobilisation tilts it. The reproduction in issue #27.
+    """
+    rng = np.random.default_rng(seed)
+    reg = rng.integers(500, 2000, n)
+    t = np.clip(rng.normal(0.55, 0.08, n), 0.2, 0.95)
+    cast = rng.binomial(reg, t)
+    rate = np.clip(0.75 + slope * (t - 0.55) + rng.normal(0, 0.03, n), 0.05, 0.95)
+    win = rng.binomial(cast, rate)
+    return 100.0 * cast / reg, 100.0 * win / cast, cast.astype(float)
+
+
+def test_turnout_dependence_says_falls_when_the_share_falls():
+    """Issue #27. The test is two-sided, so a falling share flags, and the headline has to say
+    it falls. It said "rises" over rho -0.782 and then printed the gap as "-8.9 points ...
+    lower than elsewhere", a double negative that literally says higher."""
+    turnout, share, weights = _share_moving_with_turnout(-0.6)
+    f = turnout_share_dependence(turnout, share, weights=weights, winner="party_a", n_boot=200)
+
+    assert f.flag is Flag.STRONG, f
+    assert f.statistic < 0 and f.effect < 0
+    assert f.title.startswith("Share for party_a falls with turnout: Spearman rho -0."), f.title
+    assert "rises" not in f.title
+    # The gap is signed, top decile minus the rest, with no direction word to fight the sign.
+    assert f"minus its share elsewhere is {f.effect:+.1f} points" in f.title, f.title
+    assert "lower" not in f.title and "higher" not in f.title, f.title
+    # The mobilisation confound is the rival's campaign, not the contestant's own.
+    assert len(f.confounds) == 3
+    assert not any("its own turnout and its own share" in c for c in f.confounds), f.confounds
+    assert any("rival's well-organised campaign" in c for c in f.confounds), f.confounds
+
+
+def test_turnout_dependence_wording_follows_the_sign_of_rho():
+    """Both directions, at both flag levels: the headline word, the signed gap and the
+    mobilisation confound all agree with rho. Slope -0.15 is the NOTABLE falling case."""
+    seen = set()
+    for slope in (-0.6, -0.15, 0.15, 0.6):
+        turnout, share, weights = _share_moving_with_turnout(slope)
+        f = turnout_share_dependence(turnout, share, weights=weights, n_boot=100)
+        assert f.flag in (Flag.NOTABLE, Flag.STRONG), (slope, f)
+        assert (f.statistic > 0) == (slope > 0), (slope, f.statistic)
+        seen.add((f.flag, f.statistic > 0))
+
+        word, other = ("rises", "falls") if f.statistic > 0 else ("falls", "rises")
+        assert f.title.startswith(f"Share for the leading contestant {word} with turnout"), (
+            slope,
+            f.title,
+        )
+        assert other not in f.title, (slope, f.title)
+        assert f"is {f.effect:+.1f} points" in f.title, (slope, f.title)
+        rival = any("rival's well-organised campaign" in c for c in f.confounds)
+        assert rival == (f.statistic < 0), (slope, f.confounds)
+    assert (Flag.NOTABLE, False) in seen, "the sweep should include a NOTABLE falling share"
+
+
+def test_turnout_dependence_reads_a_rivals_stuffing_as_a_falling_share(clean_df, column_map):
+    """Why a falling share flags at all: votes added to one contestant's pile lower every other
+    contestant's share in exactly the precincts where they raise turnout. The incumbent is
+    stuffed here, as in the test above, and the share read is party_second's."""
+    dirty = ElectionData(
+        frame=with_stuffing(clean_df, fraction=0.15, boost=0.5),
+        columns=column_map,
+        source="synthetic-stuffed",
+    )
+    f = turnout_share_dependence(
+        dirty.turnout(),
+        dirty.share("party_second"),
+        weights=dirty.votes_frame().sum(axis=1).to_numpy(float),
+        winner="party_second",
+        n_boot=200,
+    )
+    assert f.flag in (Flag.NOTABLE, Flag.STRONG), f
+    assert f.statistic < 0
+    assert f.title.startswith("Share for party_second falls with turnout"), f.title
+
+
 def test_turnout_dependence_refuses_to_estimate_anomalous_votes(clean_data):
     f = turnout_share_dependence(clean_data.turnout(), clean_data.share("party_incumbent"))
     assert "no_anomalous_vote_estimate" in f.details
