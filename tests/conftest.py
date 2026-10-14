@@ -63,6 +63,38 @@ def clean_election(
     )
 
 
+def near_the_cut_election(
+    n: int = 4000,
+    *,
+    seed: int = 13,
+    min_size: int = 1000,
+    max_size: int = 1400,
+    turnout: float = 0.55,
+    minor_share: float = 0.18,
+) -> pd.DataFrame:
+    """An honest two-party election whose minor party's counts sit just above 100.
+
+    Every count is a binomial draw, as in clean_election, but precinct sizes are uniform on a
+    narrow band, so the minor party's expected count runs from about 99 to 139 and its counts,
+    with counting noise, mostly from 90 to 150. The digit checks keep only counts of at least
+    100, so this is an honest column concentrated just above that cut, the shape issue #25 found
+    flagged far above the nominal rate. Nothing here is rounded or invented.
+    """
+    rng = np.random.default_rng(seed)
+    registered = rng.integers(min_size, max_size + 1, size=n)
+    cast = rng.binomial(registered, turnout)
+    minor = rng.binomial(cast, minor_share)
+    return pd.DataFrame(
+        {
+            "precinct": np.arange(1, n + 1),
+            "registered": registered,
+            "ballots_cast": cast,
+            "party_major": cast - minor,
+            "party_minor": minor,
+        }
+    )
+
+
 def with_rounded_turnout(
     df: pd.DataFrame, *, fraction: float = 0.15, seed: int = 5
 ) -> pd.DataFrame:
@@ -110,9 +142,10 @@ def with_stuffing(
 
 
 def with_invented_last_digits(
-    df: pd.DataFrame, *, fraction: float = 0.3, seed: int = 9
+    df: pd.DataFrame, *, fraction: float = 0.3, seed: int = 9, column: str = "party_incumbent"
 ) -> pd.DataFrame:
-    """Replace the incumbent's count in a subset with a human-looking number.
+    """Replace one party's count in a subset with a human-looking number, the incumbent's by
+    default.
 
     People writing numbers avoid repeated digits and favour some endings, so the last digit
     stops being uniform.
@@ -120,13 +153,13 @@ def with_invented_last_digits(
     out = df.copy()
     rng = np.random.default_rng(seed)
     idx = rng.choice(len(out), size=int(fraction * len(out)), replace=False)
-    counts = out.loc[out.index[idx], "party_incumbent"].to_numpy(dtype=int)
+    counts = out.loc[out.index[idx], column].to_numpy(dtype=int)
     # A lumpy last-digit distribution: heavy on 0 and 5, light on 1 and 9.
     weights = np.array([0.22, 0.03, 0.10, 0.11, 0.10, 0.20, 0.09, 0.08, 0.04, 0.03])
     new_last = rng.choice(10, size=len(counts), p=weights)
     new_counts = (counts // 10) * 10 + new_last
     cast = out.loc[out.index[idx], "ballots_cast"].to_numpy(dtype=int)
-    out.loc[out.index[idx], "party_incumbent"] = np.clip(new_counts, 0, cast)
+    out.loc[out.index[idx], column] = np.clip(new_counts, 0, cast)
     return out
 
 

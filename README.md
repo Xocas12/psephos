@@ -137,8 +137,11 @@ observed rate, which holds precinct size fixed. This is the strongest check here
 Kobak, Shpilkin and Pshenichnikov (2016).
 
 **Last digits.** Whether the last digit of vote counts is uniform. Numbers invented by people
-are not. Following Beber and Scacco (2012), with the caveat that psephos reports the direction
-of the last-two-digit signature descriptively rather than as a test, pending validation.
+are not. Only counts of at least 100 are tested, and that cut alone makes the endings just above
+it more common wherever many counts sit near it, so the comparison is with the shares honest
+counts give after the cut rather than with a flat 10 per cent. Following Beber and Scacco
+(2012), with the caveat that psephos reports the direction of the last-two-digit signature
+descriptively rather than as a test, pending validation.
 
 **Turnout and vote share.** How strongly the leading contestant's share rises with turnout,
 measured three ways. Reported as dependence, not as a vote count.
