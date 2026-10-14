@@ -121,6 +121,38 @@ def write_merged_header_xlsx(path: Path) -> Path:
     return path
 
 
+#: A precinct table whose turnout, to three decimals, has a non-zero last digit on every row, so
+#: that every share prints like `66.667`: the exact shape of a count grouped with a full stop.
+SHARE_ROWS = [
+    ("Station 1", 900, 600, 350),
+    ("Station 2", 700, 400, 210),
+    ("Station 3", 700, 500, 260),
+    ("Station 4", 700, 300, 170),
+    ("Station 5", 1500, 1000, 540),
+    ("Station 6", 1400, 500, 280),
+]
+
+#: Each row's turnout as the number stored in the cell.
+SHARES = [round(100 * cast / reg, 3) for _, reg, cast, _ in SHARE_ROWS]
+
+
+def write_numeric_shares_xlsx(path: Path) -> Path:
+    """A spreadsheet whose turnout column is stored as numbers, to three decimals.
+
+    Each share is a number cell, so it reaches the loader as a float. Printed, 66.667 looks
+    exactly like 66,667 grouped with a full stop, but a number has no separator in it to read.
+    """
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append([*HEADERS, "turnout_pct"])
+    for row, share in zip(SHARE_ROWS, SHARES, strict=True):
+        ws.append([*row, share])
+    wb.save(path)
+    return path
+
+
 def write_everything_csv(path: Path) -> Path:
     """One file with all of it: cp1251, a header block, NBSP separators and a labelled total."""
     rows = [

@@ -14,10 +14,13 @@ import pytest
 from conftest_messy import (
     CLEAN_ROWS,
     NBSP,
+    SHARE_ROWS,
+    SHARES,
     write_cp1251_csv,
     write_everything_csv,
     write_header_block_csv,
     write_merged_header_xlsx,
+    write_numeric_shares_xlsx,
     write_separators_csv,
     write_total_row_csv,
 )
@@ -306,6 +309,45 @@ def test_a_full_stop_that_cannot_be_a_thousands_break_stays_a_decimal_point(valu
     notes = coerce_numeric(frame)
     assert list(frame["x"]) == [float(v) for v in values]
     assert notes == []
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [
+        [66.667, 57.143, 72.125],  # every one prints with the shape of a grouped count
+        [66.667, "57.143", "72.125"],  # one number cell settles a column of typed ones
+    ],
+)
+def test_a_number_cell_is_not_read_for_a_thousands_separator(cells):
+    """A spreadsheet cell stored as a number arrives as a number, not as text.
+
+    Sheets are read with `dtype=object`, so a share stored as 66.667 reaches `coerce_numeric` as
+    the float 66.667, and its text is only Python printing it. That text has exactly the shape of
+    a count grouped with a full stop, and reading its full stop as a separator turned every share
+    into a number a thousand times too large, with a note saying the column had been text. A
+    number has no separator in it, so there is nothing to resolve.
+    """
+    frame = pd.DataFrame({"x": pd.Series(cells, dtype=object)})
+    notes = coerce_numeric(frame)
+    assert list(frame["x"]) == [float(v) for v in cells]
+    assert notes == []
+
+
+def test_a_whole_number_cell_leaves_the_typed_ones_to_be_read_as_thousands():
+    """An int prints with no full stop, so it says nothing either way and does not get in the way."""
+    frame = pd.DataFrame({"votes": pd.Series(["1.234", 5678, "910"], dtype=object)})
+    notes = coerce_numeric(frame)
+    assert list(frame["votes"]) == [1234.0, 5678.0, 910.0]
+    assert "full stop thousands separator" in _note_text(notes)
+
+
+def test_a_spreadsheet_share_stored_as_a_number_loads_unchanged_and_unnoted(tmp_path):
+    """The same thing through a real file: an .xlsx whose turnout cells are numbers."""
+    data = load(write_numeric_shares_xlsx(tmp_path / "shares.xlsx"))
+
+    assert list(data.frame["turnout_pct"]) == SHARES
+    assert list(data.frame["registered"]) == [float(r[1]) for r in SHARE_ROWS]
+    assert "turnout_pct" not in _note_text(data.load_notes)
 
 
 def test_plain_integers_are_converted_without_a_note():

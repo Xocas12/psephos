@@ -125,8 +125,11 @@ def _one_decimal_mark(values: pd.Series, sep: str) -> bool:
 _FULL_STOP_GROUPED = re.compile(r"[1-9]\d{0,2}\.\d{3}")
 
 
-def _full_stop_groups_like_thousands(values: pd.Series) -> bool:
-    """Does every full stop in a column that parsed as plain decimals group three digits?
+def _full_stop_groups_like_thousands(text: pd.Series, cells: pd.Series) -> bool:
+    """Does every full stop typed into a column that parsed as plain decimals group three digits?
+
+    ``text`` is the column's non-blank values as stripped text, and ``cells`` the same rows as
+    they arrived.
 
     `1.234` is a perfectly good decimal to pandas, so a count column written in the continental
     convention never fails the plain parse and never reaches the separator styles. Every count
@@ -137,9 +140,21 @@ def _full_stop_groups_like_thousands(values: pd.Series) -> bool:
     a full stop and every value that has one is a single digit-group of one to three digits, a
     full stop and exactly three digits. One value with any other shape (`12.5`, `1234.567`,
     `0.512`) means the full stop is a decimal mark.
+
+    Only a full stop that was typed counts. A spreadsheet is read with dtype=object, so a cell
+    stored as a number arrives here as a number, and its text is Python printing it: 66.667
+    stored as a number prints as `66.667`, which has exactly the shape of a grouped count and
+    is nothing of the kind. A number has no thousands separator in it, so there is nothing to
+    resolve. And a number cell that prints with a full stop at all is a float (a whole number in
+    a sheet arrives as an int, which prints without one), which says the column holds
+    decimals, so one such cell keeps the plain reading for the whole column.
     """
-    dotted = values[values.str.contains(".", regex=False)]
-    return not dotted.empty and bool(dotted.str.fullmatch(_FULL_STOP_GROUPED).all())
+    dotted = text.str.contains(".", regex=False).astype(bool)
+    if not dotted.any():
+        return False
+    if not cells[dotted].map(lambda value: isinstance(value, str)).all():
+        return False
+    return bool(text[dotted].str.fullmatch(_FULL_STOP_GROUPED).all())
 
 
 _DIGITS = re.compile(r"\d")
@@ -330,12 +345,14 @@ def coerce_numeric(frame: pd.DataFrame) -> list[str]:
         # parses as 1.234, so a column grouped with full stops would be accepted here as
         # decimals, silently, while the same column grouped with commas fails the parse and is
         # read as thousands with a note. Such a column goes on to the full-stop thousands style
-        # alone, which takes the thousands reading and says the decimal one exists.
+        # alone, which takes the thousands reading and says the decimal one exists. The raw
+        # cells go along because a number cell is only text here by being printed, and its full
+        # stop is a decimal point that nobody typed.
         styles = _SEPARATOR_STYLES
         plain = pd.to_numeric(text, errors="coerce")
         parses_plainly = bool(plain[filled.index].notna().all())
         if parses_plainly:
-            if not _full_stop_groups_like_thousands(filled):
+            if not _full_stop_groups_like_thousands(filled, series[filled.index]):
                 frame[col] = plain.astype(float)
                 continue
             styles = tuple(style for style in _SEPARATOR_STYLES if style[0] == ".")
