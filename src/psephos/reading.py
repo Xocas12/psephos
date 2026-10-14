@@ -119,6 +119,29 @@ def _one_decimal_mark(values: pd.Series, sep: str) -> bool:
     return bool((values.str.count(re.escape(sep)) <= 1).all())
 
 
+#: A count under a million grouped with a full stop: `1.234`, `12.345`, `123.456`. The leading
+#: group cannot be 0, because nobody writes 512 as `0.512`; that is a fraction, and only a
+#: fraction.
+_FULL_STOP_GROUPED = re.compile(r"[1-9]\d{0,2}\.\d{3}")
+
+
+def _full_stop_groups_like_thousands(values: pd.Series) -> bool:
+    """Does every full stop in a column that parsed as plain decimals group three digits?
+
+    `1.234` is a perfectly good decimal to pandas, so a count column written in the continental
+    convention never fails the plain parse and never reaches the separator styles. Every count
+    from 1,000 to 999,999 came out a thousand times too small, with no note. A million or more
+    (`1.234.567`) fails the plain parse and was always read correctly.
+
+    So a column that parsed plainly is still a thousands candidate when at least one value has
+    a full stop and every value that has one is a single digit-group of one to three digits, a
+    full stop and exactly three digits. One value with any other shape (`12.5`, `1234.567`,
+    `0.512`) means the full stop is a decimal mark.
+    """
+    dotted = values[values.str.contains(".", regex=False)]
+    return not dotted.empty and bool(dotted.str.fullmatch(_FULL_STOP_GROUPED).all())
+
+
 _DIGITS = re.compile(r"\d")
 
 #: The non-breaking space a spreadsheet exports a thousands separator as. Invisible in every
@@ -302,13 +325,23 @@ def coerce_numeric(frame: pd.DataFrame) -> list[str]:
         # dtype=object, so that the header scan can see the raw cells; pandas would have
         # inferred them on its own and nothing is being repaired, so nothing is reported. A note
         # per numeric column would bury the ones that matter.
+        #
+        # Except where the plain parse is itself a reading of an ambiguous column. `1.234`
+        # parses as 1.234, so a column grouped with full stops would be accepted here as
+        # decimals, silently, while the same column grouped with commas fails the parse and is
+        # read as thousands with a note. Such a column goes on to the full-stop thousands style
+        # alone, which takes the thousands reading and says the decimal one exists.
+        styles = _SEPARATOR_STYLES
         plain = pd.to_numeric(text, errors="coerce")
-        if plain[filled.index].notna().all():
-            frame[col] = plain.astype(float)
-            continue
+        parses_plainly = bool(plain[filled.index].notna().all())
+        if parses_plainly:
+            if not _full_stop_groups_like_thousands(filled):
+                frame[col] = plain.astype(float)
+                continue
+            styles = tuple(style for style in _SEPARATOR_STYLES if style[0] == ".")
 
         ambiguous = False
-        for thousands, decimal in _SEPARATOR_STYLES:
+        for thousands, decimal in styles:
             has_thousands = filled.str.contains(re.escape(thousands), regex=True).any()
             has_decimal = filled.str.contains(re.escape(decimal), regex=True).any()
             # Reject a reading before trying it, rather than accepting whichever one happens to
@@ -349,8 +382,16 @@ def coerce_numeric(frame: pd.DataFrame) -> list[str]:
                 style = " and ".join(parts) if parts else "plain digits"
                 note = (
                     f"column {str(col)!r} was text and is now numeric, read as {style} "
-                    f"({len(filled)} values). It would otherwise have been dropped from every "
-                    "numeric check without a word."
+                    f"({len(filled)} values). "
+                )
+                # The usual danger is a column left as text; here it is the opposite one, a
+                # column that would have read as numbers either way.
+                note += (
+                    "The column also parses with the full stop as a decimal mark, so the other "
+                    "reading would have raised no error."
+                    if parses_plainly
+                    else "It would otherwise have been dropped from every numeric check without "
+                    "a word."
                 )
                 if ambiguous and thousands:
                     sep_name = SEPARATOR_NAMES.get(thousands, repr(thousands))
