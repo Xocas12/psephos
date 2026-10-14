@@ -104,7 +104,10 @@ def test_last_digit_false_positive_rate_is_near_nominal(clean_df):
 
     Demanding Flag.OK on one seed asserts that a correct check got lucky: at alpha 0.05 any
     honest check flags about one clean election in twenty. So measure the rate over many
-    independent clean elections instead. Measured here: 4 notable and 0 strong out of 40.
+    independent clean elections instead. Measured here: 2 notable and 0 strong out of 40, and 4
+    notable before the expected shares allowed for the min_count cut (issue #25). The incumbent
+    is the column least exposed to that cut; tests/test_digit_calibration.py holds every
+    column, and one concentrated at the cut, to the nominal rate.
     """
     flags = [
         last_digit_uniformity(

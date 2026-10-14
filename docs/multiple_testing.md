@@ -9,15 +9,27 @@ This document argues the family definition. The implementation is `src/psephos/c
 
 ## The measured baseline
 
-Over twenty independent clean elections from `tests/conftest.py`, the audit produced **28
-flags out of 360 findings**: about **7.8 per cent** against a 5 per cent nominal, or **1.4
-flags per audit**.
+Over twenty independent clean elections from `tests/conftest.py` (seeds 400 to 419, `n_mc=200`),
+the audit produced **27 flags out of 360 findings**: about **7.5 per cent** against a 5 per cent
+nominal, or **1.35 flags per audit**. Before the last-digit check allowed for its own
+`min_count` cut ([#25](https://github.com/Xocas12/psephos/issues/25)) the same elections gave
+28, 7.8 per cent.
 
 That number was a surprise and is worth dwelling on. An earlier version of this repository
 reported "0 flagged of 18" on clean data and offered it as evidence of good calibration. It
 was one fortunate seed. `tests/test_audit.py` now pins the rate rather than requiring zero, and
 `docs/why_no_benford.md` records the related lesson: a single-seed "must not flag" assertion
 requires a correct check to get lucky.
+
+Two things in that number are different in kind. The flags per audit are what multiplicity
+produces: eighteen findings at 5 per cent each give about 0.9 flags per audit with nothing
+wrong, and more checks give more. The rate per finding is not. A check calibrated at 5 per cent
+flags 5 per cent of its findings however many other checks run beside it, so a rate above 5
+per cent is a check firing too often on honest data, and no correction for multiplicity
+repairs that. One of the 28 was the last-digit cut. Of the 27 left, 23 are integer-percentage
+findings, from 9 of the 20 elections and 7 of them from one: the sweep re-asks one question of
+nested subsets, so an election that trips it trips it several times, and twenty elections
+measure that rate only loosely.
 
 So the correction is not defensive tidying. On this tool's own clean data, roughly three flags
 in forty are noise.
