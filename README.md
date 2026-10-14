@@ -6,7 +6,8 @@ Statistical anomaly detection for precinct-level election results.
 can.** Read [INTERPRETATION.md](INTERPRETATION.md) before you use any output in public.
 
 ```console
-$ psephos audit results.csv --registered registered --votes "party_a,party_b,party_c"
+$ psephos audit results.csv --registered registered --ballots-cast ballots_cast \
+    --votes "party_a,party_b,party_c" --precinct-id precinct --region region
 
 ==============================================================================
 psephos audit: results.csv
@@ -14,19 +15,29 @@ psephos audit: results.csv
 leading contestant: party_a
 ==============================================================================
 
+...
+
 INTEGRITY
+  [  ok  ] total_rows: No row looks like an aggregate of the others.
   [  ok  ] duplicate_units: No duplicate rows on ['region', 'precinct'].
   [  ok  ] negative_counts: No negative counts.
+  [  ok  ] missing: No missing values in the mapped columns.
   [  ok  ] turnout_over_100: No unit reports more ballots than registered voters.
+  [  ok  ] votes_exceed_ballots: Votes never exceed ballots counted.
 
-FLAGGED FINDINGS (2 of 19)
-  [STRONG ] integer_percentage  (turnout, min_denominator=250)
-      614 of 3820 units land on a whole-number turnout percentage; binomial noise
-      predicts about 189. Excess +425 units (+11.13 per cent of those tested).
-      stat=28.4  p=0.001996  effect=0.1113  n=3820  excluded=180
-      - could also be: Small precincts, where whole-number percentages are common by
-        arithmetic alone...
+FLAGGED FINDINGS (8 of 18)
+  [STRONG ] integer_percentage  (turnout, min_denominator=100)
+      856 of 4000 units land on a whole-number turnout percentage; binomial noise predicts about 404. Excess +452 units (+11.29 per cent of those tested, 95 per cent interval [+9.95, +12.60]).
+      effect=0.1129 [0.09951, 0.126]  stat=23.07  p=0.001996  adj_p=0.01198  n=4000
+      - could also be: Small precincts, where whole-number percentages are common by arithmetic alone. ...
+...
 ```
+
+That is a real run, cut where it says `...`, on a synthetic election from `tests/conftest.py`
+with turnout rounded to a whole percentage in 15 per cent of its precincts. All eight flags are
+that one rounding, seen at four size thresholds and in four size bands, which is why the report
+also counts hypotheses rather than findings alone. `tests/test_readme_sample.py` re-runs the
+command and fails if the sample stops matching what it prints.
 
 ## Why this exists
 
