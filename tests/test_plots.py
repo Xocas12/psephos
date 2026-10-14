@@ -139,8 +139,13 @@ def test_without_registered_voters_the_turnout_plots_are_named_as_absent(clean_d
     data = ElectionData(frame=clean_df, columns=cmap, source="no-registered")
     report = audit(data, n_mc=N_MC, seed=0)
     plots, missing = build_plots(report, data)
-    assert [p.name for p in plots] == ["last_digit_bars"]
+    # The winner's-share sweep runs without a registered column (issue #33), so its plot is
+    # drawn; only the two turnout plots are absent, and the sentence says so and no more.
+    assert [p.name for p in plots] == ["threshold_sweep", "last_digit_bars"]
     assert len(missing) == 1 and "registered-voters column" in missing[0]
+    assert "threshold sweep" not in missing[0]
+    sweep = plots[0]
+    assert {c.label.split(" at ")[0] for c in sweep.counts} == {"party_incumbent share"}
     page = to_html(report, data)
     assert "registered-voters column" in page
 

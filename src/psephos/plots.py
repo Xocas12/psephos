@@ -233,8 +233,8 @@ def threshold_sweep(report: AuditReport) -> Plot | None:
     """Excess whole-number percentages against the size threshold, from the audit's findings.
 
     Reads the findings rather than recomputing, so the points are the statistics the text report
-    prints. Returns ``None`` when the audit ran no sweep, which happens without a
-    registered-voters column.
+    prints. Returns ``None`` when the audit ran no sweep, which happens when no contestant
+    columns are mapped. Without a registered-voters column it draws the winner's share alone.
     """
     series = _sweep_findings(report)
     if not series:
@@ -335,15 +335,17 @@ def build_plots(report: AuditReport, data: ElectionData) -> tuple[list[Plot], li
         thresholds = report.meta.get("settings", {}).get("thresholds") or DEFAULT_THRESHOLDS
         plots.append(turnout_histogram(data, min_denominator=min(thresholds)))
         plots.append(turnout_share_histogram(data, winner=report.meta.get("winner")))
-        sweep = threshold_sweep(report)
-        if sweep is not None:
-            plots.append(sweep)
-        else:
-            missing.append("The threshold sweep is absent because the audit ran no sweep.")
     else:
         missing.append(
-            "The turnout histogram, the turnout-share histogram and the threshold sweep are "
-            "absent because no registered-voters column is mapped."
+            "The turnout histogram and the turnout-share histogram are absent because no "
+            "registered-voters column is mapped."
         )
+    # The sweep reads the audit's findings, and the winner's-share sweep runs without a
+    # registered column, so this plot does not depend on one.
+    sweep = threshold_sweep(report)
+    if sweep is not None:
+        plots.append(sweep)
+    else:
+        missing.append("The threshold sweep is absent because the audit ran no sweep.")
     plots.append(last_digit_bars(data))
     return plots, missing

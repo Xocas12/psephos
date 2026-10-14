@@ -62,10 +62,14 @@ def audit(
         grounds: a check that cannot run says so and the audit continues.
 
     Every effect that has one carries a confidence interval from the stratified unit bootstrap
-    of :mod:`psephos.interval`, and the text report prints it before the p-value. The
-    stratification is by registered voters where the check has them, which is every percentage
-    check and, through ``sizes``, the digit and dependence checks too. ``n_boot=0`` turns the
-    intervals off.
+    of :mod:`psephos.interval`, and the text report prints it before the p-value. Each
+    percentage check is stratified by its own denominator, registered voters for turnout and
+    valid votes for the winner's share, and the digit and dependence checks by registered
+    voters through ``sizes`` when that column is mapped. ``n_boot=0`` turns the intervals off.
+
+    Only the turnout-based checks need a registered-voters column. Without one the audit still
+    runs the winner's-share sweep and the digit checks, and records one not-applicable finding
+    naming what it skipped.
 
     ``progress``, when given, reports replicate counts for the Monte Carlo checks on stderr; see
     :mod:`psephos.progress`. It changes nothing about the result.
@@ -118,6 +122,14 @@ def audit(
     report.meta["winner"] = winner
 
     # ---------------------------------------------------------------- percentage checks
+    # Turnout needs the registered column; the winner's share does not. Its numerator is the
+    # winner's votes and its denominator the contestant sum, and integer_excess stratifies its
+    # interval by that same denominator, so it runs on any file with contestant columns. Many
+    # published results carry votes but no electorate, and skipping the share sweep there
+    # would turn a check that can run into a quiet report.
+    winner_votes = data.frame[data.columns.votes[winner]].to_numpy(dtype=float)
+    valid = data.votes_frame().sum(axis=1).to_numpy(dtype=float)
+
     if has_registered:
         reg = data.registered()
         cast = data.total_votes()
@@ -145,29 +157,26 @@ def audit(
                 )
             )
 
-        winner_votes = data.frame[data.columns.votes[winner]].to_numpy(dtype=float)
-        valid = data.votes_frame().sum(axis=1).to_numpy(dtype=float)
-        for t in thresholds:
-            report.add(
-                _safe(
-                    integer_pct.integer_excess,
-                    winner_votes,
-                    valid,
-                    check="integer_percentage",
-                    min_denominator=t,
-                    n_mc=n_mc,
-                    seed=seed,
-                    slice_name=f"{winner} share, min_denominator={t}",
-                    label=f"{winner} share",
-                    n_boot=n_boot,
-                    ci_level=ci_level,
-                    progress=prog.for_check(
-                        f"integer percentage, {winner} share, min_denominator={t}"
-                    ),
-                    hypothesis=f"integer_pct:{winner} share",
-                )
+    for t in thresholds:
+        report.add(
+            _safe(
+                integer_pct.integer_excess,
+                winner_votes,
+                valid,
+                check="integer_percentage",
+                min_denominator=t,
+                n_mc=n_mc,
+                seed=seed,
+                slice_name=f"{winner} share, min_denominator={t}",
+                label=f"{winner} share",
+                n_boot=n_boot,
+                ci_level=ci_level,
+                progress=prog.for_check(f"integer percentage, {winner} share, min_denominator={t}"),
+                hypothesis=f"integer_pct:{winner} share",
             )
+        )
 
+    if has_registered:
         report.add(
             _safe(
                 turnout.turnout_share_dependence,
@@ -197,14 +206,25 @@ def audit(
             )
         )
     else:
+        # Name exactly what was skipped. The share sweep above ran, so a sentence saying no
+        # percentage check could run would be false, and a reader of the default report, which
+        # prints only flags, would take the quiet result as covering it.
+        sweep = "across the size thresholds"
+        if by_size:
+            sweep += " and within size bands"
         report.add(
             Finding(
-                check="integer_percentage",
+                check="setup",
                 title=(
-                    "No registered-voters column is mapped, so no percentage check can run. "
-                    "This is the strongest family psephos has; map it if the data has it."
+                    "No registered-voters column is mapped, so the turnout-based checks cannot "
+                    f"run: whole-number turnout percentages {sweep}, the dependence of "
+                    f"{winner}'s share on turnout, and the turnout distribution. Whole-number "
+                    f"percentages of {winner}'s share need only the contestant columns and are "
+                    "still tested. Map the column if the data has it: turnout is half of the "
+                    "integer-percentage check, the strongest psephos has."
                 ),
                 flag=Flag.NOT_APPLICABLE,
+                slice_name="turnout",
             )
         )
 
