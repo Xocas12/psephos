@@ -63,7 +63,11 @@ CONFOUNDS = [
     "inventing a number.",
     "Rounding during aggregation or transcription, which produces the same endings on counts "
     "that were honestly collected.",
-    "Small counts, where the last digit is not free. The min_count threshold controls this.",
+    "Counts dense at the min_count cut. Leaving out counts below min_count, which is needed "
+    "because a small count's last digit is not free, makes the endings uneven by themselves "
+    "wherever many counts sit just above the cut: 0 gains most, so the share ending in 0 or 5 "
+    "rises above 0.20 with nothing invented. This template does not allow for that; the real "
+    "check in psephos.methods.digits does.",
 ]
 
 

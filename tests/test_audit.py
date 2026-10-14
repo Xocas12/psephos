@@ -149,11 +149,13 @@ def test_audit_of_clean_data_flags_close_to_the_nominal_rate(clean_data):
     asserts that eighteen tests at alpha 0.05 all got lucky, which is expecting a bit under
     two in five audits.
 
-    Measured over twenty independent clean elections: 28 flags out of 360 findings, about 7.8
-    per cent against a 5 per cent nominal, or 1.4 flags per audit. That mild excess is exactly
-    why psephos reports the flagged count against the total, and why issue #12 (a
-    multiple-testing correction) is on the v0.2 milestone. This test pins the rate so it
-    cannot drift upward unnoticed.
+    Measured over twenty independent clean elections (seeds 400 to 419, n_mc=200): 27 flags out
+    of 360 findings, about 7.5 per cent against a 5 per cent nominal, or 1.35 flags per audit;
+    28 before the last-digit check allowed for its min_count cut (issue #25). The flags per
+    audit are multiplicity, which is why psephos reports the flagged count against the total
+    and applies the correction in docs/multiple_testing.md. A rate per finding above 5 per cent
+    is not; that document breaks the 27 down. This test pins the rate so it cannot drift upward
+    unnoticed.
     """
     rep = audit(clean_data, n_mc=200, seed=0)
     assert rep.n_units == clean_data.n

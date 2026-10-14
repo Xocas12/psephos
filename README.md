@@ -101,9 +101,10 @@ numpy, scipy and pandas.
 For a report you can read rather than parse, add `--html report.html`. It writes one
 self-contained page: the interpretation section first, then the flagged findings with their
 confounds, then four plots, the fine turnout histogram, turnout against the winner's share,
-the effect across size thresholds, and last digits against uniform. Every plot states how many
-units it used and how many it excluded, by the same rule as the check it illustrates. It needs
-the `plots` extra (`pip install -e '.[plots]'`, or `uv sync --extra plots`).
+the effect across size thresholds, and last digits against the shares the last-digit check
+tests them on. Every plot states how many units it used and how many it excluded, by the same
+rule as the check it illustrates. It needs the `plots` extra (`pip install -e '.[plots]'`, or
+`uv sync --extra plots`).
 
 As a library:
 
@@ -137,8 +138,14 @@ observed rate, which holds precinct size fixed. This is the strongest check here
 Kobak, Shpilkin and Pshenichnikov (2016).
 
 **Last digits.** Whether the last digit of vote counts is uniform. Numbers invented by people
-are not. Following Beber and Scacco (2012), with the caveat that psephos reports the direction
-of the last-two-digit signature descriptively rather than as a test, pending validation.
+are not. Only counts of at least 100 are tested, and that cut alone makes the endings just above
+it more common wherever many counts sit near it, so the comparison is with the shares honest
+counts give after the cut rather than with a flat 10 per cent. Those shares assume the counts
+are smooth across a block of ten values (a hundred for the last two digits); where they are
+not, as when a party's counts are spread by little more than counting noise around the cut,
+the check reports that it cannot test them rather than testing. Following Beber and Scacco
+(2012), with the caveat that psephos reports the direction of the last-two-digit signature
+descriptively rather than as a test, pending validation.
 
 **Turnout and vote share.** How strongly the leading contestant's share rises with turnout,
 measured three ways. Reported as dependence, not as a vote count.

@@ -104,7 +104,10 @@ def test_last_digit_false_positive_rate_is_near_nominal(clean_df):
 
     Demanding Flag.OK on one seed asserts that a correct check got lucky: at alpha 0.05 any
     honest check flags about one clean election in twenty. So measure the rate over many
-    independent clean elections instead. Measured here: 4 notable and 0 strong out of 40.
+    independent clean elections instead. Measured here: 2 notable and 0 strong out of 40, and 4
+    notable before the expected shares allowed for the min_count cut (issue #25). The incumbent
+    is the column least exposed to that cut; tests/test_digit_calibration.py holds every
+    column, and one concentrated at the cut, to the nominal rate.
     """
     flags = [
         last_digit_uniformity(
@@ -127,7 +130,11 @@ def test_last_digit_finds_invented_numbers(clean_df):
 
 
 def test_last_digit_hand_computed_on_a_perfect_uniform():
-    counts = np.array([1000 + d for d in range(10)] * 40, dtype=float)
+    # Every value from 1000 to 1399 once: 40 of each digit, spread over forty blocks of ten. Not
+    # 40 copies of 1000 to 1009, which puts every count in one block of ten; the check refuses
+    # that, because nothing about whole blocks says how such a spike spreads over the endings
+    # (issue #25, tests/test_digit_calibration.py).
+    counts = np.arange(1000, 1400, dtype=float)
     f = last_digit_uniformity(counts)
     # Exactly uniform: chi-square is 0 and the total variation distance is 0.
     assert f.statistic == pytest.approx(0.0)

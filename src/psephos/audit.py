@@ -45,6 +45,58 @@ def _safe(fn, *args, check: str, hypothesis: str | None = None, **kwargs) -> Fin
     return finding
 
 
+def run_digit_checks(
+    data: ElectionData,
+    *,
+    n_boot: int = DEFAULT_N_BOOT,
+    ci_level: float = 0.95,
+    seed: int | None = 0,
+) -> list[Finding]:
+    """The digit checks exactly as :func:`audit` runs them: the last digit of every contestant
+    column, then the last two digits of the winner's.
+
+    A function of its own so that a calibration test can run what the audit runs, on hundreds
+    of elections, without paying for the percentage checks each time; see
+    tests/test_digit_calibration.py.
+    """
+    sizes = data.registered() if data.columns.registered else None
+    winner = data.winner_label()
+    findings: list[Finding] = []
+    # One hypothesis per contestant column: each count's digits are a separate question, and
+    # they are the members of the family closest to independent.
+    for label, col in data.columns.votes.items():
+        counts = data.frame[col].to_numpy(dtype=float)
+        findings.append(
+            _safe(
+                digits.last_digit_uniformity,
+                counts,
+                check="last_digit",
+                slice_name=label,
+                label=label,
+                sizes=sizes,
+                n_boot=n_boot,
+                ci_level=ci_level,
+                seed=seed,
+                hypothesis=f"last_digit:{label}",
+            )
+        )
+    findings.append(
+        _safe(
+            digits.last_two_digit_pairs,
+            data.frame[data.columns.votes[winner]].to_numpy(dtype=float),
+            check="last_two_digits",
+            slice_name=winner,
+            label=winner,
+            sizes=sizes,
+            n_boot=n_boot,
+            ci_level=ci_level,
+            seed=seed,
+            hypothesis=f"last_two_digits:{winner}",
+        )
+    )
+    return findings
+
+
 def audit(
     data: ElectionData,
     *,
@@ -209,38 +261,8 @@ def audit(
         )
 
     # ---------------------------------------------------------------- digit checks
-    # One hypothesis per contestant column: each count's digits are a separate question, and
-    # they are the members of the family closest to independent.
-    for label, col in data.columns.votes.items():
-        counts = data.frame[col].to_numpy(dtype=float)
-        report.add(
-            _safe(
-                digits.last_digit_uniformity,
-                counts,
-                check="last_digit",
-                slice_name=label,
-                label=label,
-                sizes=data.registered() if has_registered else None,
-                n_boot=n_boot,
-                ci_level=ci_level,
-                seed=seed,
-                hypothesis=f"last_digit:{label}",
-            )
-        )
-    report.add(
-        _safe(
-            digits.last_two_digit_pairs,
-            data.frame[data.columns.votes[winner]].to_numpy(dtype=float),
-            check="last_two_digits",
-            slice_name=winner,
-            label=winner,
-            sizes=data.registered() if has_registered else None,
-            n_boot=n_boot,
-            ci_level=ci_level,
-            seed=seed,
-            hypothesis=f"last_two_digits:{winner}",
-        )
-    )
+    for finding in run_digit_checks(data, n_boot=n_boot, ci_level=ci_level, seed=seed):
+        report.add(finding)
 
     # ---------------------------------------------------------------- stratified view
     if by_size and has_registered:
